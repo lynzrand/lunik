@@ -88,7 +88,8 @@ fn get_toolchain_executable(
     let toolchain_root = toolchain
         .root_path
         .clone()
-        .unwrap_or_else(|| crate::config::toolchain_path(toolchain_name));
+        .unwrap_or_else(|| crate::config::toolchain_path(toolchain_name))
+        .join("bin");
     let executable_name = if cfg!(windows) {
         format!("{}.exe", executable_name)
     } else {
