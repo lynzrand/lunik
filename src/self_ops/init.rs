@@ -1,8 +1,7 @@
 use std::{
     borrow::Cow,
     io::Write,
-    path::{self, Path, PathBuf},
-    process::Command,
+    path::{Path, PathBuf},
 };
 
 use anyhow::Context;

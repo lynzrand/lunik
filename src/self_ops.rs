@@ -3,11 +3,9 @@ mod init;
 
 use std::path::{Path, PathBuf};
 
-use anyhow::Context;
 use clap::Parser;
-use home::home_dir;
 
-use crate::{config::lunik_dir, mux::LUNIK_TOOLCHAIN_ENV_NAME};
+use crate::mux::LUNIK_TOOLCHAIN_ENV_NAME;
 
 /// The MoonBit toolchain multiplexer.
 ///
