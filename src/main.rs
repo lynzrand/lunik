@@ -23,7 +23,7 @@ fn main() {
     match res {
         Ok(()) => {}
         Err(e) => {
-            eprintln!("{}", e);
+            eprintln!("{:?}", e);
             std::process::exit(1);
         }
     }
