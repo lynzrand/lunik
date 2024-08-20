@@ -1,10 +1,13 @@
 mod channel;
+mod init;
 
 use std::path::{Path, PathBuf};
 
+use anyhow::Context;
 use clap::Parser;
+use home::home_dir;
 
-use crate::mux::LUNIK_TOOLCHAIN_ENV_NAME;
+use crate::{config::lunik_dir, mux::LUNIK_TOOLCHAIN_ENV_NAME};
 
 /// The MoonBit toolchain multiplexer.
 ///
@@ -20,6 +23,8 @@ enum Cmd {
     Link(LinkSubcommand),
 
     InitConfig,
+
+    Init(init::InitSubcommand),
 
     #[clap(subcommand)]
     Channel(channel::ChannelCommandline),
@@ -56,7 +61,8 @@ pub fn entry() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match &cli.cmd {
         Cmd::Link(link) => handle_link(&cli, link),
-        Cmd::InitConfig => handle_init_config(&cli),
+        Cmd::InitConfig => handle_init_config(),
+        Cmd::Init(_) => init::handle_init(),
         Cmd::Channel(cmd) => channel::entry(&cli, cmd),
         Cmd::Default(default) => channel::handle_default(&cli, default),
         Cmd::Which(which) => handle_which(&cli, which),
@@ -149,7 +155,7 @@ pub fn symlink_self_to(path: &Path) -> anyhow::Result<()> {
     symlink_to(&self_exe, path)
 }
 
-fn handle_init_config(_cli: &Cli) -> anyhow::Result<()> {
+fn handle_init_config() -> anyhow::Result<()> {
     let config_path = crate::config::config_path();
     if config_path.exists() {
         anyhow::bail!("Config file already exists at {}", config_path.display());

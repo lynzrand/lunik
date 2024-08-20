@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::PathBuf};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct Config {
     /// Toolchain information
     #[serde(default)]
@@ -17,7 +17,7 @@ pub struct Config {
     pub default: String,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ToolchainInfo {
     /// The fallback toolchain to use if the specified toolchain does not contain
     /// the required tool.
@@ -38,7 +38,7 @@ pub struct ToolchainInfo {
     pub core_path: Option<PathBuf>,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ChannelInfo {
     /// Override URL
     url: Option<String>,

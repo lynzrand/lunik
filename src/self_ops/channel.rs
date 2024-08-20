@@ -144,15 +144,20 @@ fn run_bundle_core(
     channel: &Channel,
 ) -> anyhow::Result<()> {
     // moon bundle --all --source-dir <core_dir>
-    let mut cmd = crate::mux::executable_entry(config, Some(&channel.to_string()), "moon")?;
+    let mut cmd = crate::mux::executable_entry(config, Some(&channel.to_string()), "moon")
+        .context("Failed to find executable `moon`")?;
     cmd.args(["bundle", "--all", "--source-dir"]);
     cmd.arg(core_dir);
 
     tracing::debug!("Running command: {:?}", cmd);
 
-    let status = cmd.status()?;
+    let mut child = cmd.spawn().context("Failed to spawn `moon`")?;
+    let status = child.wait().context("Failed to run `moon`")?;
     if !status.success() {
-        anyhow::bail!("Failed to bundle core: failed with status {}", status);
+        anyhow::bail!(
+            "Failed to bundle core: `moon bundle --all` failed with status {}",
+            status
+        );
     }
 
     Ok(())
@@ -177,10 +182,21 @@ fn ensure_all_executables_are_linked(bin_dir: &std::path::Path) -> anyhow::Resul
             if !exe_path.exists() {
                 symlink_self_to(&exe_path)
                     .with_context(|| format!("Failed to create symlink {}", exe_path.display()))?;
-                eprintln!("Linked {}", exe_path.display());
+                // if unix, add executable permissions
+                #[cfg(unix)]
+                {
+                    add_executable_permissions(&exe_path).with_context(|| {
+                        format!(
+                            "Failed to add executable permissions to {}",
+                            exe_path.display()
+                        )
+                    })?;
+                }
+                tracing::info!("Linked {}", exe_path.display());
             }
         }
     }
+
     Ok(())
 }
 
@@ -236,11 +252,6 @@ fn full_install(
     let sha_info = client.get(sha_url).send()?.text()?;
     verify_outputs(&temp_bin_dir, &sha_info).context("Failed to verify checksums")?;
 
-    // Bundle core
-    tracing::info!("Bundling core");
-    run_bundle_core(config, &temp_lib_dir.join("core"), channel)
-        .context("Failed to bundle core")?;
-
     tracing::info!("Installing files");
 
     // Move to the final location
@@ -287,14 +298,14 @@ fn full_install(
     }
     std::fs::rename(&temp_lib_dir, &lib_dir).context("Failed to install the new lib dir")?;
 
+    // Ensure everything in /bin exist in home directory
+    ensure_all_executables_are_linked(&bin_dir)
+        .context("Failed to symlink some executables to bin directory")?;
+
     // Compile core libraries
     tracing::info!("Compiling core libraries");
     run_bundle_core(config, &lib_dir.join("core"), channel)
         .context("Failed to compile core libraries")?;
-
-    // Ensure everything in /bin exist in home directory
-    ensure_all_executables_are_linked(&bin_dir)
-        .context("Failed to symlink some executables to bin directory")?;
 
     // Okay, we are done
     update_successful.set(true);
@@ -332,31 +343,39 @@ pub struct AddSubcommand {
 }
 
 fn handle_add(_cli: &super::Cli, cmd: &AddSubcommand) -> anyhow::Result<()> {
-    let config = read_config().context("When reading config")?;
+    let old_config = read_config().context("When reading config")?;
     let channel: Channel = cmd.channel.parse().context("parsing toolchain channel")?;
     let channel_name = channel.to_string();
 
-    if config.channels.contains_key(&channel_name) {
+    if old_config.channels.contains_key(&channel_name) {
         anyhow::bail!("Toolchain channel already exists: {}", cmd.channel);
     }
+
+    // Update the config
+    let mut new_config = old_config.clone();
+    let channel_info = ChannelInfo::default();
+    new_config
+        .channels
+        .insert(channel_name.clone(), channel_info);
+    let toolchain_info = ToolchainInfo::default();
+    new_config
+        .toolchain
+        .insert(channel_name.clone(), toolchain_info);
+
+    // save the config so that other lunik instances can use it
+    save_config(&new_config)?;
 
     // Do the installation
     let mut client = reqwest::blocking::Client::new();
     let path = crate::config::toolchain_path(&channel_name);
-
-    // Update the config
-    let mut config = config;
-    let channel_info = ChannelInfo::default();
-    config.channels.insert(channel_name.clone(), channel_info);
-    let toolchain_info = ToolchainInfo::default();
-    config
-        .toolchain
-        .insert(channel_name.clone(), toolchain_info);
-
-    full_install(&config, &mut client, &channel, &path, false)?;
-
-    // Installation successful, save the config
-    save_config(&config)?;
+    match full_install(&new_config, &mut client, &channel, &path, false) {
+        Ok(_) => {}
+        Err(e) => {
+            // If the installation fails, restore the old config
+            save_config(&old_config)?;
+            return Err(e);
+        }
+    };
 
     println!("Toolchain installed: {}", cmd.channel);
 
