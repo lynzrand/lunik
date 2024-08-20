@@ -32,6 +32,7 @@ pub struct ToolchainInfo {
 
 const MOON_HOME_DEFAULT: &str = ".moon";
 const LUNIK_DIR: &str = "lunik";
+const TOOLCHAIN_DEFAULT_ROOT: &str = "toolchain";
 const CONFIG_NAME: &str = "lunik.json";
 const LUNIK_HOME_ENV_NAME: &str = "LUNIK_HOME";
 const MOON_HOME_ENV_NAME: &str = "MOON_HOME";
@@ -58,6 +59,12 @@ pub fn lunik_dir() -> PathBuf {
 /// Find the config path. It is located at `{HOME_DIR}/lunik.json`
 pub fn config_path() -> PathBuf {
     home_dir().join(CONFIG_NAME)
+}
+
+pub fn toolchain_path(toolchain_name: &str) -> PathBuf {
+    lunik_dir()
+        .join(TOOLCHAIN_DEFAULT_ROOT)
+        .join(toolchain_name)
 }
 
 pub fn read_config() -> anyhow::Result<Config> {
