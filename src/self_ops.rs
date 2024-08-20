@@ -15,6 +15,7 @@ struct Cli {
 enum Cmd {
     Link(LinkSubcommand),
     InitConfig,
+    Default(DefaultSubcommand),
 }
 
 /// Symlink the current binary to the specified path(s).
@@ -37,6 +38,7 @@ pub fn entry() -> anyhow::Result<()> {
     match &cli.cmd {
         Cmd::Link(link) => handle_link(&cli, link),
         Cmd::InitConfig => handle_init_config(&cli),
+        Cmd::Default(default) => handle_default(&cli, default),
     }
 }
 
@@ -128,5 +130,25 @@ fn handle_init_config(_cli: &Cli) -> anyhow::Result<()> {
     std::fs::write(&config_path, default_config_json)?;
     println!("Config file created at {}", config_path.display());
 
+    Ok(())
+}
+
+/// Specify the default toolchain
+#[derive(clap::Parser, Debug)]
+struct DefaultSubcommand {
+    /// The default toolchain name
+    toolchain: String,
+}
+
+fn handle_default(_cli: &Cli, cmd: &DefaultSubcommand) -> anyhow::Result<()> {
+    let mut config = crate::config::read_config()?;
+    if !config.toolchain.contains_key(&cmd.toolchain) {
+        anyhow::bail!("Toolchain not found: {}", cmd.toolchain);
+    }
+    config.default.clone_from(&cmd.toolchain);
+    let config_path = crate::config::config_path();
+    let config_json = serde_json_lenient::to_string_pretty(&config)?;
+    std::fs::write(config_path, config_json)?;
+    println!("Default toolchain set to {}", cmd.toolchain);
     Ok(())
 }
