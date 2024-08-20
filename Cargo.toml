@@ -8,7 +8,10 @@ name = "lunik"
 path = "src/main.rs"
 
 [dependencies]
-serde = "1.0.203"
+anyhow = "1.0.86"
+clap = { version = "4.5.4", features = ["derive"] }
+home = "0.5.9"
+serde = { version = "1.0.203", features = ["derive"] }
 serde_json_lenient = "0.2.1"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
