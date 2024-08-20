@@ -1,7 +1,4 @@
-use std::{
-    borrow::{Borrow, Cow},
-    path::PathBuf,
-};
+use std::{borrow::Cow, path::PathBuf};
 
 use crate::config::{Config, ToolchainInfo, LUNIK_HOME_ENV_NAME};
 

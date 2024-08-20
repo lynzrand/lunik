@@ -299,7 +299,7 @@ pub struct AddSubcommand {
     channel: String,
 }
 
-fn handle_add(cli: &super::Cli, cmd: &AddSubcommand) -> anyhow::Result<()> {
+fn handle_add(_cli: &super::Cli, cmd: &AddSubcommand) -> anyhow::Result<()> {
     let config = read_config().context("When reading config")?;
     let channel: Channel = cmd.channel.parse().context("parsing toolchain channel")?;
     let channel_name = channel.to_string();
@@ -337,7 +337,7 @@ pub struct UpdateSubcommand {
     channel: Vec<String>,
 }
 
-fn handle_update(cli: &super::Cli, cmd: &UpdateSubcommand) -> anyhow::Result<()> {
+fn handle_update(_cli: &super::Cli, cmd: &UpdateSubcommand) -> anyhow::Result<()> {
     let config = read_config().context("When reading config")?;
     let channels = if cmd.channel.is_empty() {
         config.channels.keys().cloned().collect()
@@ -367,7 +367,7 @@ pub struct RemoveSubcommand {
     channel: String,
 }
 
-fn handle_remove(cli: &super::Cli, cmd: &RemoveSubcommand) -> anyhow::Result<()> {
+fn handle_remove(_cli: &super::Cli, cmd: &RemoveSubcommand) -> anyhow::Result<()> {
     let config = read_config().context("When reading config")?;
     let channel: Channel = cmd
         .channel
@@ -397,7 +397,7 @@ fn handle_remove(cli: &super::Cli, cmd: &RemoveSubcommand) -> anyhow::Result<()>
 #[derive(Debug, clap::Parser)]
 pub struct ListSubcommand {}
 
-fn handle_list(cli: &super::Cli, _cmd: &ListSubcommand) -> anyhow::Result<()> {
+fn handle_list(_cli: &super::Cli, _cmd: &ListSubcommand) -> anyhow::Result<()> {
     let config = read_config().context("When reading config")?;
     for name in config.toolchain.keys() {
         println!("{}", name);
