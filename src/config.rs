@@ -8,11 +8,15 @@ pub struct Config {
     #[serde(default)]
     pub toolchain: HashMap<String, ToolchainInfo>,
 
+    /// Channel information
+    #[serde(default)]
+    pub channels: HashMap<String, ChannelInfo>,
+
     /// Default toolchain
     pub default: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ToolchainInfo {
     /// The fallback toolchain to use if the specified toolchain does not contain
     /// the required tool.
@@ -30,12 +34,21 @@ pub struct ToolchainInfo {
     pub override_: HashMap<String, PathBuf>,
 }
 
-const MOON_HOME_DEFAULT: &str = ".moon";
-const LUNIK_DIR: &str = "lunik";
-const TOOLCHAIN_DEFAULT_ROOT: &str = "toolchain";
-const CONFIG_NAME: &str = "lunik.json";
-const LUNIK_HOME_ENV_NAME: &str = "LUNIK_HOME";
-const MOON_HOME_ENV_NAME: &str = "MOON_HOME";
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct ChannelInfo {
+    /// Override URL
+    url: Option<String>,
+}
+
+pub const MOON_HOME_DEFAULT: &str = ".moon";
+pub const LUNIK_DIR: &str = "lunik";
+pub const TOOLCHAIN_DEFAULT_ROOT: &str = "toolchain";
+pub const CONFIG_NAME: &str = "lunik.json";
+pub const LUNIK_HOME_ENV_NAME: &str = "LUNIK_HOME";
+pub const MOON_HOME_ENV_NAME: &str = "MOON_HOME";
+
+pub const BIN_DIR: &str = "bin";
+pub const CORE_DIR: &str = "core";
 
 /// Find the home directory.
 ///
@@ -67,8 +80,23 @@ pub fn toolchain_path(toolchain_name: &str) -> PathBuf {
         .join(toolchain_name)
 }
 
+pub fn toolchain_bin_path(toolchain_name: &str) -> PathBuf {
+    toolchain_path(toolchain_name).join(BIN_DIR)
+}
+
+pub fn toolchain_core_path(toolchain_name: &str) -> PathBuf {
+    toolchain_path(toolchain_name).join(CORE_DIR)
+}
+
 pub fn read_config() -> anyhow::Result<Config> {
     let config_path = config_path();
     let cfg: Config = serde_json_lenient::from_reader(std::fs::File::open(config_path)?)?;
     Ok(cfg)
+}
+
+pub fn save_config(cfg: &Config) -> anyhow::Result<()> {
+    let config_path = config_path();
+    let mut file = std::fs::File::create(config_path)?;
+    serde_json_lenient::to_writer_pretty(&mut file, cfg)?;
+    Ok(())
 }

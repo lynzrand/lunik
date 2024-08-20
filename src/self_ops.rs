@@ -1,3 +1,5 @@
+mod toolchain;
+
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
@@ -14,8 +16,13 @@ struct Cli {
 #[derive(clap::Parser, Debug)]
 enum Cmd {
     Link(LinkSubcommand),
+
     InitConfig,
-    Default(DefaultSubcommand),
+
+    #[clap(subcommand)]
+    Toolchain(toolchain::ToolchainCommandline),
+
+    Default(channel::DefaultSubcommand),
 }
 
 /// Symlink the current binary to the specified path(s).
@@ -38,6 +45,7 @@ pub fn entry() -> anyhow::Result<()> {
     match &cli.cmd {
         Cmd::Link(link) => handle_link(&cli, link),
         Cmd::InitConfig => handle_init_config(&cli),
+        Cmd::Toolchain(toolchain) => toolchain::entry(&cli, toolchain),
         Cmd::Default(default) => handle_default(&cli, default),
     }
 }

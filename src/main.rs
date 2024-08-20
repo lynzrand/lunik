@@ -1,3 +1,4 @@
+mod channel;
 mod config;
 mod mux;
 mod self_ops;
