@@ -2,20 +2,15 @@
 
 Lunik is a MoonBit toolchain multiplexer.
 
-## Migrating from regular MoonBit toolchain
+## Installation
 
-```shell
-mkdir -p ~/.moon/lunik/toolchain/stable/
-cp ~/.moon/bin/* ~/.moon/lunik/toolchain/stable/
-cat >~/.moon/lunik.json <<EOF
-{
-  "toolchain": {
-    "stable": {}
-  },
-  "default": "stable"
-}
-EOF
-lunik link ~/.moon/bin/ moon moonc mooninfo moon_cove_report moonrun moondoc lunik -f
+- Create `~/.moon/bin` and add it to `PATH`
+  - If you have already installed Moonbit toolchain, please clear `~/.moon/bin`
+- Copy lunik executable to `~/.moon/bin`
+
+```sh
+lunik init-config
+lunik channel add latest # or other channels
 ```
 
 ## Running
