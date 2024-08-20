@@ -158,8 +158,12 @@ pub fn symlink_self_to(path: &Path) -> anyhow::Result<()> {
 
 fn handle_init_config(allow_existing: bool) -> anyhow::Result<()> {
     let config_path = crate::config::config_path();
-    if config_path.exists() && !allow_existing {
-        anyhow::bail!("Config file already exists at {}", config_path.display());
+    if config_path.exists() {
+        if allow_existing {
+            return Ok(());
+        } else {
+            anyhow::bail!("Config file already exists at {}", config_path.display());
+        }
     }
 
     let default_config = crate::config::Config::default();
