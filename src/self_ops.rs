@@ -14,6 +14,7 @@ struct Cli {
 #[derive(clap::Parser, Debug)]
 enum Cmd {
     Link(LinkSubcommand),
+    InitConfig,
 }
 
 /// Symlink the current binary to the specified path.
@@ -28,6 +29,9 @@ pub fn entry() {
     match &cli.cmd {
         Cmd::Link(link) => {
             handle_link(&cli, link);
+        }
+        Cmd::InitConfig => {
+            handle_init_config(&cli);
         }
     }
 }
@@ -69,4 +73,17 @@ fn handle_link(_cli: &Cli, cmd: &LinkSubcommand) {
             );
         }
     }
+}
+
+fn handle_init_config(_cli: &Cli) {
+    let config_path = crate::config::config_path();
+    if config_path.exists() {
+        eprintln!("Config file already exists at {}", config_path.display());
+        return;
+    }
+
+    let default_config = crate::config::Config::default();
+    let default_config_json = serde_json_lenient::to_string_pretty(&default_config).unwrap();
+    std::fs::write(&config_path, default_config_json).unwrap();
+    println!("Config file created at {}", config_path.display());
 }
