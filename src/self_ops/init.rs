@@ -45,7 +45,7 @@ pub fn handle_init(cmd: &InitSubcommand) -> anyhow::Result<()> {
     }
 
     // Init config
-    super::handle_init_config().context("Failed to init config")?;
+    super::handle_init_config(true).context("Failed to init config")?;
 
     // Ask the user to add the bin dir to PATH
     let shell = std::env::var("SHELL");

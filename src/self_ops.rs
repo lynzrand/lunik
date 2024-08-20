@@ -61,7 +61,7 @@ pub fn entry() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match &cli.cmd {
         Cmd::Link(link) => handle_link(&cli, link),
-        Cmd::InitConfig => handle_init_config(),
+        Cmd::InitConfig => handle_init_config(false),
         Cmd::Init(init) => init::handle_init(init),
         Cmd::Channel(cmd) => channel::entry(&cli, cmd),
         Cmd::Default(default) => channel::handle_default(&cli, default),
@@ -156,9 +156,9 @@ pub fn symlink_self_to(path: &Path) -> anyhow::Result<()> {
     symlink_to(&self_exe, path)
 }
 
-fn handle_init_config() -> anyhow::Result<()> {
+fn handle_init_config(allow_existing: bool) -> anyhow::Result<()> {
     let config_path = crate::config::config_path();
-    if config_path.exists() {
+    if config_path.exists() && !allow_existing {
         anyhow::bail!("Config file already exists at {}", config_path.display());
     }
 
