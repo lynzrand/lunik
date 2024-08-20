@@ -142,7 +142,7 @@ fn run_bundle_core(
     channel: &Channel,
 ) -> anyhow::Result<()> {
     // moon bundle --all --source-dir <core_dir>
-    let mut cmd = crate::mux::run_executable(config, Some(&channel.to_string()), "moon")?;
+    let mut cmd = crate::mux::executable_entry(config, Some(&channel.to_string()), "moon")?;
     cmd.args(["bundle", "--all", "--source-dir"]);
     cmd.arg(core_dir);
 

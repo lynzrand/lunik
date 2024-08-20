@@ -856,6 +856,7 @@ dependencies = [
  "hex",
  "home",
  "indicatif",
+ "once_cell",
  "reqwest",
  "scopeguard",
  "serde",
