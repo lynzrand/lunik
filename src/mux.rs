@@ -34,6 +34,18 @@ pub fn entry(binary_name: &str, argv: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn real_toolchain_name<'a>(
+    cfg: &Config,
+    toolchain_name: &'a str,
+) -> anyhow::Result<Cow<'a, str>> {
+    if cfg.toolchain.contains_key(toolchain_name) {
+        Ok(Cow::Borrowed(toolchain_name))
+    } else {
+        let ch = toolchain_name.parse::<super::channel::Channel>()?;
+        Ok(Cow::Owned(ch.to_string()))
+    }
+}
+
 pub fn executable_entry(
     cfg: &Config,
     toolchain_name: Option<&str>,

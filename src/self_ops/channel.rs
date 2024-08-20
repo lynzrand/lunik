@@ -1,6 +1,6 @@
 //! Toolchain management.
 
-use std::cell::Cell;
+use std::{cell::Cell, path::Path};
 
 use anyhow::Context;
 use indicatif::ProgressStyle;
@@ -10,6 +10,7 @@ use tempfile::TempDir;
 use crate::{
     channel::Channel,
     config::{read_config, save_config, ChannelInfo, Config, ToolchainInfo, BIN_DIR, LIB_DIR},
+    mux::real_toolchain_name,
 };
 
 use super::symlink_self_to;
@@ -468,51 +469,63 @@ pub struct DefaultSubcommand {
 pub fn handle_default(_cli: &super::Cli, cmd: &DefaultSubcommand) -> anyhow::Result<()> {
     let mut config = crate::config::read_config()?;
 
-    let toolchain_name = if config.toolchain.contains_key(&cmd.toolchain) {
-        config.default.clone_from(&cmd.toolchain);
-        cmd.toolchain.clone()
-    } else {
-        // It might be a channel name
-        let channel: Channel = match cmd.toolchain.parse() {
-            Ok(ch) => ch,
-            Err(_) => {
-                anyhow::bail!(
-                    "Specified name {} is neither a toolchain nor a channel",
-                    cmd.toolchain
-                )
-            }
-        };
-        config.default = channel.to_string();
-        channel.to_string()
-    };
+    let toolchain_name = real_toolchain_name(&config, &cmd.toolchain)?;
+    config.default = toolchain_name.clone().into();
+
     println!("Default toolchain set to {}", cmd.toolchain);
     // Try deleting `$MOON_HOME/lib/core` and symlink it to the default toolchain's core
-    let core_dir = crate::config::home_dir().join("lib/core");
+    let lib_dir = crate::config::home_dir().join("lib");
+    let core_dir = lib_dir.join("core");
     if core_dir.exists() {
         // if it's a symlink, remove it
-        if core_dir.symlink_metadata()?.file_type().is_symlink() {
+        if core_dir
+            .symlink_metadata()
+            .context("Unable to get core dir info")?
+            .file_type()
+            .is_symlink()
+        {
             std::fs::remove_file(&core_dir).context("Unable to unlink symlinked core directory")?;
         } else {
             std::fs::remove_dir_all(&core_dir).context("Unable to remove old core directory")?;
         }
     }
+    // ensure lib directory exists
+    std::fs::create_dir_all(&lib_dir).context("Unable to create lib directory")?;
+
     let default_toolchain_path = crate::config::toolchain_path(&toolchain_name);
-    let lib_dir = default_toolchain_path.join("lib");
-    let default_core_dir = default_toolchain_path.join("lib/core");
+    let toolchain_lib_dir = default_toolchain_path.join("lib");
+    let toolchain_core_dir = default_toolchain_path.join("lib/core");
     // mkdir -p $MOON_HOME/lib
-    std::fs::create_dir_all(&lib_dir).context("Unable to create core directo ry")?;
+    std::fs::create_dir_all(&toolchain_lib_dir).context("Unable to create core directory")?;
 
-    // ln -s $TOOLCHAIN_HOME/lib/core $MOON_HOME/lib/core
+    match symlink_core(&toolchain_core_dir, &core_dir) {
+        Ok(_) => {
+            tracing::info!(
+                "Symlinked core directory: {} -> {}",
+                toolchain_core_dir.display(),
+                core_dir.display()
+            );
+        }
+        Err(e) => {
+            tracing::error!(
+                "Unable to symlink core directory: {}; Core directory: {}",
+                e,
+                toolchain_core_dir.display()
+            );
+        }
+    };
+
+    crate::config::save_config(&config).context("Unable to save configuration")?;
+    Ok(())
+}
+
+fn symlink_core(default_core_dir: &Path, core_dir: &Path) -> Result<(), anyhow::Error> {
     #[cfg(unix)]
-    std::os::unix::fs::symlink(&default_core_dir, &core_dir)?;
+    std::os::unix::fs::symlink(default_core_dir, core_dir)?;
     #[cfg(windows)]
-    std::os::windows::fs::symlink_dir(&default_core_dir, &core_dir)?;
+    std::os::windows::fs::symlink_dir(default_core_dir, core_dir)?;
     #[cfg(not(any(unix, windows)))]
-    {
-        eprintln!("Unable to symlink core directory, unsupported platform");
-    }
-
-    crate::config::save_config(&config)?;
+    bail!("Unsupported platform");
     Ok(())
 }
 
