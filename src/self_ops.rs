@@ -62,7 +62,7 @@ pub fn entry() -> anyhow::Result<()> {
     match &cli.cmd {
         Cmd::Link(link) => handle_link(&cli, link),
         Cmd::InitConfig => handle_init_config(),
-        Cmd::Init(_) => init::handle_init(),
+        Cmd::Init(init) => init::handle_init(init),
         Cmd::Channel(cmd) => channel::entry(&cli, cmd),
         Cmd::Default(default) => channel::handle_default(&cli, default),
         Cmd::Which(which) => handle_which(&cli, which),

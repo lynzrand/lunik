@@ -14,6 +14,7 @@ flate2 = "1.0.30"
 hex = "0.4.3"
 home = "0.5.9"
 indicatif = "0.17.8"
+inquire = "0.7.5"
 once_cell = "1.19.0"
 reqwest = { version = "0.12.4", default-features = false, features = [
     "blocking",
