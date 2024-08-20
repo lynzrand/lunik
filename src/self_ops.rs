@@ -1,9 +1,8 @@
-mod toolchain;
+mod channel;
 
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
-use tracing_subscriber::Layer;
 
 /// The MoonBit toolchain multiplexer.
 ///
@@ -21,7 +20,7 @@ enum Cmd {
     InitConfig,
 
     #[clap(subcommand)]
-    Toolchain(toolchain::ToolchainCommandline),
+    Channel(channel::ChannelCommandline),
 
     Default(channel::DefaultSubcommand),
 }
@@ -54,8 +53,8 @@ pub fn entry() -> anyhow::Result<()> {
     match &cli.cmd {
         Cmd::Link(link) => handle_link(&cli, link),
         Cmd::InitConfig => handle_init_config(&cli),
-        Cmd::Toolchain(toolchain) => toolchain::entry(&cli, toolchain),
-        Cmd::Default(default) => handle_default(&cli, default),
+        Cmd::Channel(cmd) => channel::entry(&cli, cmd),
+        Cmd::Default(default) => channel::handle_default(&cli, default),
     }
 }
 

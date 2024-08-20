@@ -1,11 +1,12 @@
 //! Toolchain management.
 
 use anyhow::Context;
+use indicatif::ProgressStyle;
 use sha2::Digest;
 use tempfile::TempDir;
 
 use crate::{
-    channel::{Channel, ChannelKind},
+    channel::Channel,
     config::{read_config, save_config, ChannelInfo, ToolchainInfo, BIN_DIR, CORE_DIR},
 };
 
@@ -37,6 +38,9 @@ fn channel_sha_url(ch: &Channel) -> String {
     )
 }
 
+const PROGRESS_BAR_TEMPLATE: &str =
+    "{prefix} [{elapsed_precise}] [{bar}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})";
+
 fn download_file(
     client: &mut reqwest::blocking::Client,
     url: &str,
@@ -52,7 +56,12 @@ fn download_file(
         Some(len) => indicatif::ProgressBar::new(len),
         None => indicatif::ProgressBar::new_spinner(),
     };
-    let bar = bar.with_message(display_name.to_owned());
+    let bar = bar.with_prefix(display_name.to_owned()).with_style(
+        ProgressStyle::with_template(PROGRESS_BAR_TEMPLATE)
+            .unwrap()
+            .progress_chars("#> "),
+    );
+
     let mut reader = bar.wrap_read(&mut response);
 
     let output_file = std::fs::File::create(target)?;
@@ -115,6 +124,8 @@ fn full_install(
     let core_url = channel_core_file_url(channel);
     let sha_url = channel_sha_url(channel);
 
+    std::fs::create_dir_all(target_dir)?;
+
     tracing::info!("Begin installation in channel {}", channel);
 
     // Download and unpack in a temporary directory
@@ -148,7 +159,6 @@ fn full_install(
     tracing::info!("Installing files");
 
     // Move to the final location
-    std::fs::create_dir_all(target_dir)?;
     // Rename the old directory if it exists
     let backup_dir = target_dir.join(format!("{}-backup", BIN_DIR));
     if bin_dir.exists() {
@@ -172,17 +182,17 @@ fn full_install(
 }
 
 #[derive(Debug, clap::Parser)]
-pub enum ToolchainCommandline {
-    /// Install a toolchain
-    Install(AddSubcommand),
-    /// Update a toolchain or all toolchains
+pub enum ChannelCommandline {
+    /// Add a toolchain channel
+    Add(AddSubcommand),
+    /// Update a toolchain channel or all channels
     Update(UpdateSubcommand),
-    /// Uninstall a toolchain
-    Uninstall(RemoveSubcommand),
-    /// List installed toolchains
+    /// Remove a toolchain channels
+    Remove(RemoveSubcommand),
+    /// List installed toolchain channels
     List(ListSubcommand),
     /// Specify the default toolchain. Same as `lunik default`
-    Default(super::DefaultSubcommand),
+    Default(DefaultSubcommand),
 }
 
 #[derive(Debug, clap::Parser)]
@@ -193,27 +203,30 @@ pub struct AddSubcommand {
 
 fn handle_add(cli: &super::Cli, cmd: &AddSubcommand) -> anyhow::Result<()> {
     let config = read_config().context("When reading config")?;
-    let toolchain: Channel = cmd.channel.parse().context("parsing toolchain channel")?;
-    if config.channels.contains_key(&cmd.channel) {
+    let channel: Channel = cmd.channel.parse().context("parsing toolchain channel")?;
+    let channel_name = channel.to_string();
+
+    if config.channels.contains_key(&channel_name) {
         anyhow::bail!("Toolchain channel already exists: {}", cmd.channel);
     }
 
     // Do the installation
     let mut client = reqwest::blocking::Client::new();
-    full_install(
-        &mut client,
-        &toolchain,
-        &crate::config::toolchain_path(&cmd.channel),
-        false,
-    )?;
+    let path = crate::config::toolchain_path(&channel_name);
+
+    full_install(&mut client, &channel, &path, false)?;
 
     // Update the config
     let mut config = config;
     let channel_info = ChannelInfo::default();
-    config.channels.insert(cmd.channel.clone(), channel_info);
+    config.channels.insert(channel_name.clone(), channel_info);
     let toolchain_info = ToolchainInfo::default();
-    config.toolchain.insert(cmd.channel.clone(), toolchain_info);
+    config
+        .toolchain
+        .insert(channel_name.clone(), toolchain_info);
     save_config(&config)?;
+
+    println!("Toolchain installed: {}", cmd.channel);
 
     Ok(())
 }
@@ -241,6 +254,7 @@ fn handle_update(cli: &super::Cli, cmd: &UpdateSubcommand) -> anyhow::Result<()>
             &crate::config::toolchain_path(&channel),
             false,
         )?;
+        println!("Toolchain updated: {}", channel);
     }
 
     Ok(())
@@ -254,7 +268,13 @@ pub struct RemoveSubcommand {
 
 fn handle_remove(cli: &super::Cli, cmd: &RemoveSubcommand) -> anyhow::Result<()> {
     let config = read_config().context("When reading config")?;
-    if !config.channels.contains_key(&cmd.channel) {
+    let channel: Channel = cmd
+        .channel
+        .parse()
+        .context("When parsing toolchain channel")?;
+    let channel_name = channel.to_string();
+
+    if !config.channels.contains_key(&channel_name) {
         anyhow::bail!("Toolchain channel not found: {}", cmd.channel);
     }
 
@@ -264,9 +284,11 @@ fn handle_remove(cli: &super::Cli, cmd: &RemoveSubcommand) -> anyhow::Result<()>
     }
 
     let mut config = config;
-    config.channels.remove(&cmd.channel);
-    config.toolchain.remove(&cmd.channel);
+    config.channels.remove(&channel_name);
+    config.toolchain.remove(&channel_name);
     save_config(&config)?;
+
+    println!("Toolchain removed: {}", cmd.channel);
 
     Ok(())
 }
@@ -283,12 +305,42 @@ fn handle_list(cli: &super::Cli, _cmd: &ListSubcommand) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn entry(cli: &super::Cli, cmd: &ToolchainCommandline) -> anyhow::Result<()> {
+/// Specify the default toolchain
+#[derive(clap::Parser, Debug)]
+pub struct DefaultSubcommand {
+    /// The default toolchain name
+    toolchain: String,
+}
+
+pub fn handle_default(_cli: &super::Cli, cmd: &DefaultSubcommand) -> anyhow::Result<()> {
+    let mut config = crate::config::read_config()?;
+
+    if config.toolchain.contains_key(&cmd.toolchain) {
+        config.default.clone_from(&cmd.toolchain);
+    } else {
+        // It might be a channel name
+        let channel: Channel = match cmd.toolchain.parse() {
+            Ok(ch) => ch,
+            Err(_) => {
+                anyhow::bail!(
+                    "Specified name {} is neither a toolchain nor a channel",
+                    cmd.toolchain
+                )
+            }
+        };
+        config.default = channel.to_string();
+    }
+    println!("Default toolchain set to {}", cmd.toolchain);
+    crate::config::save_config(&config)?;
+    Ok(())
+}
+
+pub fn entry(cli: &super::Cli, cmd: &ChannelCommandline) -> anyhow::Result<()> {
     match cmd {
-        ToolchainCommandline::Default(v) => super::handle_default(cli, v),
-        ToolchainCommandline::Install(v) => handle_add(cli, v),
-        ToolchainCommandline::Update(v) => handle_update(cli, v),
-        ToolchainCommandline::Uninstall(v) => handle_remove(cli, v),
-        ToolchainCommandline::List(v) => handle_list(cli, v),
+        ChannelCommandline::Default(v) => handle_default(cli, v),
+        ChannelCommandline::Add(v) => handle_add(cli, v),
+        ChannelCommandline::Update(v) => handle_update(cli, v),
+        ChannelCommandline::Remove(v) => handle_remove(cli, v),
+        ChannelCommandline::List(v) => handle_list(cli, v),
     }
 }
