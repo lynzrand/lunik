@@ -26,7 +26,7 @@ If you want to specify the toolchain to use, add `+<toolchain_name>` in the plac
 
 ## Specifying new toolchains
 
-A toolchain is represented by an object in `$.toolchains`.
+A toolchain is represented by an object in `$.toolchain`.
 
 Schema:
 
