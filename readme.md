@@ -18,6 +18,12 @@ EOF
 lunik link ~/.moon/bin/ moon moonc mooninfo moon_cove_report moonrun moondoc lunik -f
 ```
 
+## Running
+
+Symlink the Lunik executable with other names, and Lunik will spawn the correct version of the corresponding tool.
+
+If you want to specify the toolchain to use, add `+<toolchain_name>` in the place of the first argument, like `moon +dev build`.
+
 ## Specifying new toolchains
 
 A toolchain is represented by an object in `$.toolchains`.
