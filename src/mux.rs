@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::config::{Config, ToolchainInfo};
 
-const LUNIK_TOOLCHAIN_ENV_NAME: &str = "LUNIK_TOOLCHAIN";
+pub const LUNIK_TOOLCHAIN_ENV_NAME: &str = "LUNIK_TOOLCHAIN";
 
 pub fn entry(binary_name: &str, argv: &[String]) -> anyhow::Result<()> {
     // Check if the next argument starts with "+"
@@ -44,6 +44,13 @@ pub fn try_get_executable(
     executable_name: &str,
 ) -> anyhow::Result<PathBuf> {
     let mut toolchain_name = toolchain.unwrap_or(&cfg.default);
+
+    // Strip .exe in executable if is Windows
+    let executable_name = if cfg!(windows) {
+        executable_name.trim_end_matches(".exe")
+    } else {
+        executable_name
+    };
 
     loop {
         // Get information about the toolchain

@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use clap::Parser;
 
+use crate::mux::LUNIK_TOOLCHAIN_ENV_NAME;
+
 /// The MoonBit toolchain multiplexer.
 ///
 /// Symlink this binary with other names to call the corresponding tools.
@@ -165,10 +167,15 @@ struct WhichSubcommand {
 
 fn handle_which(_cli: &Cli, cmd: &WhichSubcommand) -> anyhow::Result<()> {
     let cfg = crate::config::read_config()?;
-    let toolchain = cmd.arg2.as_deref();
-    let executable_name = &cmd.arg1;
 
-    let executable_path = crate::mux::try_get_executable(&cfg, toolchain, executable_name)?;
+    let binary = cmd.arg2.clone().unwrap_or(cmd.arg1.clone());
+    let toolchain = if cmd.arg2.is_some() {
+        Some(cmd.arg1.clone())
+    } else {
+        std::env::var(LUNIK_TOOLCHAIN_ENV_NAME).ok()
+    };
+
+    let executable_path = crate::mux::try_get_executable(&cfg, toolchain.as_deref(), &binary)?;
     println!("{}", executable_path.display());
 
     Ok(())
