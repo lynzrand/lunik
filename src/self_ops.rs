@@ -30,6 +30,8 @@ enum Cmd {
     Default(channel::DefaultSubcommand),
 
     Which(WhichSubcommand),
+
+    With(WithCommand),
 }
 
 /// Symlink the current binary to the specified path(s).
@@ -64,6 +66,7 @@ pub fn entry() -> anyhow::Result<()> {
         Cmd::Channel(cmd) => channel::entry(&cli, cmd),
         Cmd::Default(default) => channel::handle_default(&cli, default),
         Cmd::Which(which) => handle_which(&cli, which),
+        Cmd::With(with) => handle_with(&cli, with),
     }
 }
 
@@ -192,4 +195,44 @@ fn handle_which(_cli: &Cli, cmd: &WhichSubcommand) -> anyhow::Result<()> {
     println!("{}", executable_path.display());
 
     Ok(())
+}
+
+/// Set the environment so that Lunik invocations in the given command will use the specified toolchain.
+#[derive(clap::Parser, Debug)]
+struct WithCommand {
+    /// The name of the toolchain to use
+    toolchain: String,
+
+    /// The command to run
+    #[clap(trailing_var_arg(true), num_args(1..))]
+    cmd_args: Vec<String>,
+}
+
+fn handle_with(_cli: &Cli, cmd: &WithCommand) -> anyhow::Result<()> {
+    let cmd_args = &cmd.cmd_args;
+    if cmd_args.is_empty() {
+        anyhow::bail!("No command specified");
+    }
+
+    let toolchain = cmd.toolchain.clone();
+    let binary_name = &cmd_args[0];
+    let cmd_args = &cmd_args[1..];
+
+    let mut cmd = std::process::Command::new(binary_name);
+    cmd.args(cmd_args);
+
+    let config = crate::config::read_config()?;
+    crate::mux::configure_cmd_environment(&mut cmd, Some(&toolchain), &config)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        Err(cmd.exec().into())
+    }
+    #[cfg(not(unix))]
+    {
+        let status = cmd.status()?;
+        if !status.success() {
+            std::process::exit(status.code().unwrap_or(1));
+        }
+    }
 }

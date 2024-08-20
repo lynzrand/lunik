@@ -42,18 +42,26 @@ pub fn executable_entry(
     let executable_path = try_get_executable(cfg, toolchain_name, executable_name)?;
     let mut cmd = std::process::Command::new(executable_path);
 
-    // Set env vars for children processes
+    configure_cmd_environment(&mut cmd, toolchain_name, cfg)?;
+
+    Ok(cmd)
+}
+
+pub fn configure_cmd_environment(
+    cmd: &mut std::process::Command,
+    toolchain_name: Option<&str>,
+    cfg: &Config,
+) -> Result<(), anyhow::Error> {
     cmd.env(LUNIK_HOME_ENV_NAME, crate::config::home_dir());
     if let Some(toolchain) = toolchain_name {
         cmd.env(LUNIK_TOOLCHAIN_ENV_NAME, toolchain);
     }
-    // Add core path override if not set
-    if std::env::var(crate::config::MOON_CORE_OVERRIDE_ENV_NAME).is_err() {
-        let core_lib_path = try_get_core_lib(cfg, toolchain_name)?;
-        cmd.env(crate::config::MOON_CORE_OVERRIDE_ENV_NAME, core_lib_path);
-    }
-
-    Ok(cmd)
+    Ok(
+        if std::env::var(crate::config::MOON_CORE_OVERRIDE_ENV_NAME).is_err() {
+            let core_lib_path = try_get_core_lib(cfg, toolchain_name)?;
+            cmd.env(crate::config::MOON_CORE_OVERRIDE_ENV_NAME, core_lib_path);
+        },
+    )
 }
 
 pub fn try_get_executable(
