@@ -227,10 +227,11 @@ fn full_install(
     let core_tarball = tempdir.join("core.tar.gz");
 
     tracing::info!("Downloading files");
-    download_file(client, &bin_url, &bin_tarball, "moon binaries", quiet)
-        .context("Failed to download moon binaries")?;
+    download_file(client, &bin_url, &bin_tarball, "moon binaries", quiet).context(
+        "Failed to download moon binaries. You might want to check if the version exists.",
+    )?;
     download_file(client, &core_url, &core_tarball, "moon core", quiet)
-        .context("Failed to download moon core")?;
+        .context("Failed to download moon core. You might want to check if the version exists.")?;
 
     let temp_bin_dir = tempdir.join("bin");
     let temp_lib_dir = tempdir.join("lib");
