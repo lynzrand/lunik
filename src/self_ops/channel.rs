@@ -111,6 +111,29 @@ fn verify_outputs(target_dir: &std::path::Path, sha_info: &str) -> anyhow::Resul
     Ok(())
 }
 
+#[cfg(unix)]
+fn add_executable_permissions(path: &std::path::Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut perms = path.metadata()?.permissions();
+    let mode = perms.mode();
+    perms.set_mode(mode | 0o111);
+    std::fs::set_permissions(path, perms)?;
+
+    Ok(())
+}
+
+#[cfg(unix)]
+fn add_permissions_recursive(path: &std::path::Path) -> anyhow::Result<()> {
+    for entry in std::fs::read_dir(path)? {
+        let entry = entry?;
+        let path = entry.path();
+        add_executable_permissions(&path)?;
+    }
+
+    Ok(())
+}
+
 fn full_install(
     client: &mut reqwest::blocking::Client,
     channel: &Channel,
@@ -149,6 +172,11 @@ fn full_install(
 
     untar(&bin_tarball, &temp_bin_dir).context("When unpacking moon binaries")?;
     untar(&core_tarball, &temp_core_dir).context("When unpacking moon core")?;
+
+    #[cfg(unix)]
+    {
+        add_permissions_recursive(&temp_bin_dir)?;
+    }
 
     tracing::info!("Verifying checksums");
 
