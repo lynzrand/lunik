@@ -170,7 +170,7 @@ fn full_install(
     let core_url = channel_core_file_url(channel);
     let sha_url = channel_sha_url(channel);
 
-    std::fs::create_dir_all(target_dir)?;
+    std::fs::create_dir_all(target_dir).context("Failed to create the installation dir")?;
 
     tracing::info!("Begin installation in channel {}", channel);
 
@@ -184,32 +184,34 @@ fn full_install(
 
     tracing::info!("Downloading files");
     download_file(client, &bin_url, &bin_tarball, "moon binaries", quiet)
-        .context("When downloading moon binaries")?;
+        .context("Failed to download moon binaries")?;
     download_file(client, &core_url, &core_tarball, "moon core", quiet)
-        .context("When downloading moon core")?;
+        .context("Failed to download moon core")?;
 
     let temp_bin_dir = tempdir.join("bin");
     let temp_lib_dir = tempdir.join("lib");
 
     tracing::info!("Unpacking files");
 
-    untar(&bin_tarball, &temp_bin_dir).context("When unpacking moon binaries")?;
-    untar(&core_tarball, &temp_lib_dir).context("When unpacking moon core")?;
+    untar(&bin_tarball, &temp_bin_dir).context("Failed to unpack moon binaries")?;
+    untar(&core_tarball, &temp_lib_dir).context("Failed to unpack moon core")?;
 
     #[cfg(unix)]
     {
-        add_permissions_recursive(&temp_bin_dir)?;
+        add_permissions_recursive(&temp_bin_dir)
+            .context("Failed to add permissions recursively")?;
     }
 
     tracing::info!("Verifying checksums");
 
     // Verify checksums
     let sha_info = client.get(sha_url).send()?.text()?;
-    verify_outputs(&temp_bin_dir, &sha_info)?;
+    verify_outputs(&temp_bin_dir, &sha_info).context("Failed to verify checksums")?;
 
     // Bundle core
     tracing::info!("Bundling core");
-    run_bundle_core(config, &temp_lib_dir.join("core"), channel)?;
+    run_bundle_core(config, &temp_lib_dir.join("core"), channel)
+        .context("Failed to bundle core")?;
 
     tracing::info!("Installing files");
 
@@ -238,35 +240,38 @@ fn full_install(
 
     // Remove any existing backup directories
     if bin_backup_dir.exists() {
-        std::fs::remove_dir_all(&bin_backup_dir).context("Removing old bin backup dir")?;
+        std::fs::remove_dir_all(&bin_backup_dir).context("Failed to remove old bin backup dir")?;
     }
     if lib_backup_dir.exists() {
-        std::fs::remove_dir_all(&lib_backup_dir).context("Removing old lib backup dir")?;
+        std::fs::remove_dir_all(&lib_backup_dir).context("Failed to remove old lib backup dir")?;
     }
 
     // Backup the current directories and install the new ones
     if bin_dir.exists() {
-        std::fs::rename(&bin_dir, &bin_backup_dir).context("Backing up the current bin dir")?;
+        std::fs::rename(&bin_dir, &bin_backup_dir)
+            .context("Failed to backup the current bin dir")?;
     }
-    std::fs::rename(&temp_bin_dir, &bin_dir).context("Installing the new bin dir")?;
+    std::fs::rename(&temp_bin_dir, &bin_dir).context("Failed to install the new bin dir")?;
 
     if lib_dir.exists() {
-        std::fs::rename(&lib_dir, &lib_backup_dir).context("Backing up the current lib dir")?;
+        std::fs::rename(&lib_dir, &lib_backup_dir)
+            .context("Failed to backup the current lib dir")?;
     }
-    std::fs::rename(&temp_lib_dir, &lib_dir).context("Backing up the current lib dir")?;
+    std::fs::rename(&temp_lib_dir, &lib_dir).context("Failed to install the new lib dir")?;
 
     // Compile core libraries
     tracing::info!("Compiling core libraries");
-    run_bundle_core(config, &lib_dir.join("core"), channel)?;
+    run_bundle_core(config, &lib_dir.join("core"), channel)
+        .context("Failed to compile core libraries")?;
 
     // Okay, we are done
     update_successful.set(true);
 
     if bin_backup_dir.exists() {
-        std::fs::remove_dir_all(&bin_backup_dir).context("Removing bin backup dir")?;
+        std::fs::remove_dir_all(&bin_backup_dir).context("Failed to remove bin backup dir")?;
     }
     if lib_backup_dir.exists() {
-        std::fs::remove_dir_all(&lib_backup_dir).context("Removing lib backup dir")?;
+        std::fs::remove_dir_all(&lib_backup_dir).context("Failed to remove lib backup dir")?;
     }
 
     tracing::info!("Installation completed");
