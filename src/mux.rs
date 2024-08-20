@@ -11,10 +11,11 @@ pub fn entry(binary_name: &str, argv: &[String]) -> anyhow::Result<()> {
     let mux_toolchain = argv
         .first()
         .and_then(|arg| arg.strip_prefix('+'))
-        .map(|toolchain| toolchain.to_string())
-        .or_else(|| std::env::var(LUNIK_TOOLCHAIN_ENV_NAME).ok());
+        .map(|toolchain| toolchain.to_string());
+    let toolchain_arg_present = mux_toolchain.is_some();
+    let mux_toolchain = mux_toolchain.or_else(|| std::env::var(LUNIK_TOOLCHAIN_ENV_NAME).ok());
 
-    let argv = if mux_toolchain.is_some() {
+    let argv = if toolchain_arg_present {
         &argv[1..]
     } else {
         argv
