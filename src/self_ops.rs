@@ -66,23 +66,6 @@ pub fn entry() -> anyhow::Result<()> {
 fn handle_link(_cli: &Cli, cmd: &LinkSubcommand) -> anyhow::Result<()> {
     let self_path = std::env::current_exe().unwrap();
 
-    #[cfg(windows)]
-    fn do_symlink(from: &Path, to: &Path) -> anyhow::Result<()> {
-        std::os::windows::fs::symlink_file(from, to)?;
-        Ok(())
-    }
-
-    #[cfg(unix)]
-    fn do_symlink(from: &Path, to: &Path) -> anyhow::Result<()> {
-        std::os::unix::fs::symlink(from, to)?;
-        Ok(())
-    }
-
-    #[cfg(not(any(windows, unix)))]
-    fn do_symlink(from: &Path, to: &Path) -> anyhow::Result<()> {
-        panic!("Unsupported platform, unable to perform symlink");
-    }
-
     let symlink_targets = if cmd.binaries.is_empty() {
         vec![cmd.path.clone()]
     } else {
@@ -117,7 +100,7 @@ fn handle_link(_cli: &Cli, cmd: &LinkSubcommand) -> anyhow::Result<()> {
             }
         }
 
-        match do_symlink(&self_path, &target) {
+        match symlink_to(&self_path, &target) {
             Ok(()) => {
                 println!("Symlinked {} to {}", self_path.display(), target.display());
             }
@@ -138,6 +121,32 @@ fn handle_link(_cli: &Cli, cmd: &LinkSubcommand) -> anyhow::Result<()> {
     } else {
         Ok(())
     }
+}
+
+pub fn symlink_to(from: &Path, to: &Path) -> anyhow::Result<()> {
+    #[cfg(windows)]
+    fn do_symlink(from: &Path, to: &Path) -> anyhow::Result<()> {
+        std::os::windows::fs::symlink_file(from, to)?;
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn do_symlink(from: &Path, to: &Path) -> anyhow::Result<()> {
+        std::os::unix::fs::symlink(from, to)?;
+        Ok(())
+    }
+
+    #[cfg(not(any(windows, unix)))]
+    fn do_symlink(from: &Path, to: &Path) -> anyhow::Result<()> {
+        panic!("Unsupported platform, unable to perform symlink");
+    }
+
+    do_symlink(from, to)
+}
+
+pub fn symlink_self_to(path: &Path) -> anyhow::Result<()> {
+    let self_exe = std::env::current_exe()?;
+    symlink_to(&self_exe, path)
 }
 
 fn handle_init_config(_cli: &Cli) -> anyhow::Result<()> {

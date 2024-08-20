@@ -77,6 +77,10 @@ pub fn home_dir() -> PathBuf {
     HOME_DIR_CACHE.clone()
 }
 
+pub fn moon_bin_dir() -> PathBuf {
+    home_dir().join(BIN_DIR)
+}
+
 /// Find the resource dir for Lunik
 pub fn lunik_dir() -> PathBuf {
     home_dir().join(LUNIK_DIR)

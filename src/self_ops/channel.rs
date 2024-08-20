@@ -12,6 +12,8 @@ use crate::{
     config::{read_config, save_config, ChannelInfo, Config, ToolchainInfo, BIN_DIR, LIB_DIR},
 };
 
+use super::symlink_self_to;
+
 const MOONBIT_CLI_WEB: &str = "https://cli.moonbitlang.com";
 
 fn channel_cli_file_url(ch: &Channel) -> String {
@@ -156,6 +158,26 @@ fn run_bundle_core(
     Ok(())
 }
 
+fn ensure_all_executables_are_linked(bin_dir: &std::path::Path) -> anyhow::Result<()> {
+    let moon_bin_dir = crate::config::moon_bin_dir();
+    // Enumerate executables in the bin directory
+    let entries = std::fs::read_dir(bin_dir)?;
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_file() {
+            let filename = path.file_name().unwrap().to_string_lossy();
+            let exe_path = moon_bin_dir.join(&*filename);
+            if !exe_path.exists() {
+                symlink_self_to(&exe_path)
+                    .with_context(|| format!("Failed to create symlink {}", exe_path.display()))?;
+                eprintln!("Linked {}", exe_path.display());
+            }
+        }
+    }
+    Ok(())
+}
+
 fn full_install(
     config: &Config,
     client: &mut reqwest::blocking::Client,
@@ -263,6 +285,10 @@ fn full_install(
     tracing::info!("Compiling core libraries");
     run_bundle_core(config, &lib_dir.join("core"), channel)
         .context("Failed to compile core libraries")?;
+
+    // Ensure everything in /bin exist in home directory
+    ensure_all_executables_are_linked(&bin_dir)
+        .context("Failed to symlink some executables to bin directory")?;
 
     // Okay, we are done
     update_successful.set(true);
