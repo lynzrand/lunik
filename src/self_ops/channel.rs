@@ -218,6 +218,7 @@ fn full_install(
     let update_successful = Cell::new(false);
     let bin_backup_dir = target_dir.join(format!("{}-backup", BIN_DIR));
     let lib_backup_dir = target_dir.join(format!("{}-backup", LIB_DIR));
+    // If anything fails, we will roll back the changes
     scopeguard::defer! {
         if !update_successful.get() {
             tracing::warn!("Installation failed, rolling back changes");
@@ -235,21 +236,37 @@ fn full_install(
         }
     }
 
+    // Remove any existing backup directories
+    if bin_backup_dir.exists() {
+        std::fs::remove_dir_all(&bin_backup_dir).context("Removing old bin backup dir")?;
+    }
+    if lib_backup_dir.exists() {
+        std::fs::remove_dir_all(&lib_backup_dir).context("Removing old lib backup dir")?;
+    }
+
+    // Backup the current directories and install the new ones
     if bin_dir.exists() {
         std::fs::rename(&bin_dir, &bin_backup_dir).context("Backing up the current bin dir")?;
     }
     std::fs::rename(&temp_bin_dir, &bin_dir).context("Installing the new bin dir")?;
 
     if lib_dir.exists() {
-        std::fs::rename(&lib_dir, &lib_backup_dir)?;
+        std::fs::rename(&lib_dir, &lib_backup_dir).context("Backing up the current lib dir")?;
     }
-    std::fs::rename(&temp_lib_dir, &lib_dir)?;
+    std::fs::rename(&temp_lib_dir, &lib_dir).context("Backing up the current lib dir")?;
+
+    // Compile core libraries
+    tracing::info!("Compiling core libraries");
+    run_bundle_core(config, &lib_dir.join("core"), channel)?;
+
+    // Okay, we are done
+    update_successful.set(true);
 
     if bin_backup_dir.exists() {
-        std::fs::remove_dir_all(&bin_backup_dir).context("Removing backup dir")?;
+        std::fs::remove_dir_all(&bin_backup_dir).context("Removing bin backup dir")?;
     }
     if lib_backup_dir.exists() {
-        std::fs::remove_dir_all(&lib_backup_dir)?;
+        std::fs::remove_dir_all(&lib_backup_dir).context("Removing lib backup dir")?;
     }
 
     tracing::info!("Installation completed");
