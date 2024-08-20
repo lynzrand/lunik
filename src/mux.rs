@@ -41,6 +41,16 @@ pub fn entry(binary_name: &str, argv: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn run_executable(
+    cfg: &Config,
+    toolchain_name: Option<&str>,
+    executable_name: &str,
+) -> anyhow::Result<std::process::Command> {
+    let executable_path = try_get_executable(cfg, toolchain_name, executable_name)?;
+    let cmd = std::process::Command::new(executable_path);
+    Ok(cmd)
+}
+
 pub fn try_get_executable(
     cfg: &Config,
     toolchain: Option<&str>,

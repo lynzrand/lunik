@@ -1,5 +1,7 @@
 //! Toolchain management.
 
+use std::cell::Cell;
+
 use anyhow::Context;
 use indicatif::ProgressStyle;
 use sha2::Digest;
@@ -7,7 +9,7 @@ use tempfile::TempDir;
 
 use crate::{
     channel::Channel,
-    config::{read_config, save_config, ChannelInfo, ToolchainInfo, BIN_DIR, CORE_DIR},
+    config::{read_config, save_config, ChannelInfo, Config, ToolchainInfo, BIN_DIR, LIB_DIR},
 };
 
 const MOONBIT_CLI_WEB: &str = "https://cli.moonbitlang.com";
@@ -134,14 +136,35 @@ fn add_permissions_recursive(path: &std::path::Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn run_bundle_core(
+    config: &Config,
+    core_dir: &std::path::Path,
+    channel: &Channel,
+) -> anyhow::Result<()> {
+    // moon bundle --all --source-dir <core_dir>
+    let mut cmd = crate::mux::run_executable(config, Some(&channel.to_string()), "moon")?;
+    cmd.args(["bundle", "--all", "--source-dir"]);
+    cmd.arg(core_dir);
+
+    tracing::debug!("Running command: {:?}", cmd);
+
+    let status = cmd.status()?;
+    if !status.success() {
+        anyhow::bail!("Failed to bundle core: failed with status {}", status);
+    }
+
+    Ok(())
+}
+
 fn full_install(
+    config: &Config,
     client: &mut reqwest::blocking::Client,
     channel: &Channel,
     target_dir: &std::path::Path,
     quiet: bool,
 ) -> anyhow::Result<()> {
     let bin_dir = target_dir.join(BIN_DIR);
-    let core_dir = target_dir.join(CORE_DIR);
+    let lib_dir = target_dir.join(LIB_DIR);
 
     let bin_url = channel_cli_file_url(channel);
     let core_url = channel_core_file_url(channel);
@@ -166,12 +189,12 @@ fn full_install(
         .context("When downloading moon core")?;
 
     let temp_bin_dir = tempdir.join("bin");
-    let temp_core_dir = tempdir.join("core");
+    let temp_lib_dir = tempdir.join("lib");
 
     tracing::info!("Unpacking files");
 
     untar(&bin_tarball, &temp_bin_dir).context("When unpacking moon binaries")?;
-    untar(&core_tarball, &temp_core_dir).context("When unpacking moon core")?;
+    untar(&core_tarball, &temp_lib_dir).context("When unpacking moon core")?;
 
     #[cfg(unix)]
     {
@@ -184,25 +207,50 @@ fn full_install(
     let sha_info = client.get(sha_url).send()?.text()?;
     verify_outputs(&temp_bin_dir, &sha_info)?;
 
+    // Bundle core
+    tracing::info!("Bundling core");
+    run_bundle_core(config, &temp_lib_dir.join("core"), channel)?;
+
     tracing::info!("Installing files");
 
     // Move to the final location
     // Rename the old directory if it exists
-    let backup_dir = target_dir.join(format!("{}-backup", BIN_DIR));
-    if bin_dir.exists() {
-        std::fs::rename(&bin_dir, &backup_dir)?;
-        tracing::info!("Moved existing bin directory to {}", backup_dir.display());
-    }
-    std::fs::rename(&temp_bin_dir, &bin_dir)?;
-    std::fs::remove_dir_all(&backup_dir)?;
+    let update_successful = Cell::new(false);
+    let bin_backup_dir = target_dir.join(format!("{}-backup", BIN_DIR));
+    let lib_backup_dir = target_dir.join(format!("{}-backup", LIB_DIR));
+    scopeguard::defer! {
+        if !update_successful.get() {
+            tracing::warn!("Installation failed, rolling back changes");
 
-    let backup_dir = target_dir.join(format!("{}-backup", CORE_DIR));
-    if core_dir.exists() {
-        std::fs::rename(&core_dir, &backup_dir)?;
-        tracing::info!("Moved existing core directory to {}", backup_dir.display());
+            // Delete the new directories
+            std::fs::remove_dir_all(&temp_bin_dir).ok();
+            std::fs::remove_dir_all(&temp_lib_dir).ok();
+            // Move back the old directories
+            if bin_backup_dir.exists() {
+                std::fs::rename(&bin_backup_dir, &bin_dir).ok();
+            }
+            if lib_backup_dir.exists() {
+                std::fs::rename(&lib_backup_dir, &lib_dir).ok();
+            }
+        }
     }
-    std::fs::rename(&temp_core_dir, &core_dir)?;
-    std::fs::remove_dir_all(&backup_dir)?;
+
+    if bin_dir.exists() {
+        std::fs::rename(&bin_dir, &bin_backup_dir).context("Backing up the current bin dir")?;
+    }
+    std::fs::rename(&temp_bin_dir, &bin_dir).context("Installing the new bin dir")?;
+
+    if lib_dir.exists() {
+        std::fs::rename(&lib_dir, &lib_backup_dir)?;
+    }
+    std::fs::rename(&temp_lib_dir, &lib_dir)?;
+
+    if bin_backup_dir.exists() {
+        std::fs::remove_dir_all(&bin_backup_dir).context("Removing backup dir")?;
+    }
+    if lib_backup_dir.exists() {
+        std::fs::remove_dir_all(&lib_backup_dir)?;
+    }
 
     tracing::info!("Installation completed");
 
@@ -242,8 +290,6 @@ fn handle_add(cli: &super::Cli, cmd: &AddSubcommand) -> anyhow::Result<()> {
     let mut client = reqwest::blocking::Client::new();
     let path = crate::config::toolchain_path(&channel_name);
 
-    full_install(&mut client, &channel, &path, false)?;
-
     // Update the config
     let mut config = config;
     let channel_info = ChannelInfo::default();
@@ -252,6 +298,10 @@ fn handle_add(cli: &super::Cli, cmd: &AddSubcommand) -> anyhow::Result<()> {
     config
         .toolchain
         .insert(channel_name.clone(), toolchain_info);
+
+    full_install(&config, &mut client, &channel, &path, false)?;
+
+    // Installation successful, save the config
     save_config(&config)?;
 
     println!("Toolchain installed: {}", cmd.channel);
@@ -277,6 +327,7 @@ fn handle_update(cli: &super::Cli, cmd: &UpdateSubcommand) -> anyhow::Result<()>
     for channel in channels {
         let toolchain: Channel = channel.parse().context("parsing toolchain channel")?;
         full_install(
+            &config,
             &mut client,
             &toolchain,
             &crate::config::toolchain_path(&channel),

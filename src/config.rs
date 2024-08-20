@@ -48,7 +48,7 @@ pub const LUNIK_HOME_ENV_NAME: &str = "LUNIK_HOME";
 pub const MOON_HOME_ENV_NAME: &str = "MOON_HOME";
 
 pub const BIN_DIR: &str = "bin";
-pub const CORE_DIR: &str = "core";
+pub const LIB_DIR: &str = "lib";
 
 /// Find the home directory.
 ///
@@ -85,7 +85,7 @@ pub fn toolchain_bin_path(toolchain_name: &str) -> PathBuf {
 }
 
 pub fn toolchain_core_path(toolchain_name: &str) -> PathBuf {
-    toolchain_path(toolchain_name).join(CORE_DIR)
+    toolchain_path(toolchain_name).join(LIB_DIR)
 }
 
 pub fn read_config() -> anyhow::Result<Config> {
