@@ -468,8 +468,9 @@ pub struct DefaultSubcommand {
 pub fn handle_default(_cli: &super::Cli, cmd: &DefaultSubcommand) -> anyhow::Result<()> {
     let mut config = crate::config::read_config()?;
 
-    if config.toolchain.contains_key(&cmd.toolchain) {
+    let toolchain_name = if config.toolchain.contains_key(&cmd.toolchain) {
         config.default.clone_from(&cmd.toolchain);
+        cmd.toolchain.clone()
     } else {
         // It might be a channel name
         let channel: Channel = match cmd.toolchain.parse() {
@@ -482,8 +483,35 @@ pub fn handle_default(_cli: &super::Cli, cmd: &DefaultSubcommand) -> anyhow::Res
             }
         };
         config.default = channel.to_string();
-    }
+        channel.to_string()
+    };
     println!("Default toolchain set to {}", cmd.toolchain);
+    // Try deleting `$MOON_HOME/lib/core` and symlink it to the default toolchain's core
+    let core_dir = crate::config::home_dir().join("lib/core");
+    if core_dir.exists() {
+        // if it's a symlink, remove it
+        if core_dir.symlink_metadata()?.file_type().is_symlink() {
+            std::fs::remove_file(&core_dir).context("Unable to unlink symlinked core directory")?;
+        } else {
+            std::fs::remove_dir_all(&core_dir).context("Unable to remove old core directory")?;
+        }
+    }
+    let default_toolchain_path = crate::config::toolchain_path(&toolchain_name);
+    let lib_dir = default_toolchain_path.join("lib");
+    let default_core_dir = default_toolchain_path.join("lib/core");
+    // mkdir -p $MOON_HOME/lib
+    std::fs::create_dir_all(&lib_dir).context("Unable to create core directo ry")?;
+
+    // ln -s $TOOLCHAIN_HOME/lib/core $MOON_HOME/lib/core
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&default_core_dir, &core_dir)?;
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_dir(&default_core_dir, &core_dir)?;
+    #[cfg(not(any(unix, windows)))]
+    {
+        eprintln!("Unable to symlink core directory, unsupported platform");
+    }
+
     crate::config::save_config(&config)?;
     Ok(())
 }
