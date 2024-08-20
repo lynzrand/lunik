@@ -160,6 +160,12 @@ fn run_bundle_core(
 
 fn ensure_all_executables_are_linked(bin_dir: &std::path::Path) -> anyhow::Result<()> {
     let moon_bin_dir = crate::config::moon_bin_dir();
+    // ensure bin dir exists
+    std::fs::create_dir_all(&moon_bin_dir).context(format!(
+        "Failed to create the bin directory {}",
+        moon_bin_dir.display()
+    ))?;
+
     // Enumerate executables in the bin directory
     let entries = std::fs::read_dir(bin_dir)?;
     for entry in entries {
