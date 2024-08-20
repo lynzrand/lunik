@@ -17,11 +17,15 @@ enum Cmd {
     InitConfig,
 }
 
-/// Symlink the current binary to the specified path.
+/// Symlink the current binary to the specified path(s).
 #[derive(clap::Parser, Debug)]
+#[clap(override_usage = "lunik link <PATH> \n    lunik link <PATH> <BINARYIES>...")]
 struct LinkSubcommand {
     /// The target symlink path
     path: PathBuf,
+
+    /// The binaries to symlink. If specified, `path` must be a directory.
+    binaries: Vec<String>,
 }
 
 pub fn entry() {
@@ -56,21 +60,33 @@ fn handle_link(_cli: &Cli, cmd: &LinkSubcommand) {
         panic!("Unsupported platform, unable to perform symlink");
     }
 
-    match do_symlink(&self_path, &cmd.path) {
-        Ok(()) => {
-            println!(
-                "Symlinked {} to {}",
-                self_path.display(),
-                cmd.path.display()
-            );
+    let symlink_targets = if cmd.binaries.is_empty() {
+        vec![cmd.path.clone()]
+    } else {
+        cmd.binaries
+            .iter()
+            .map(|binary| cmd.path.join(binary))
+            .collect()
+    };
+
+    for target in symlink_targets {
+        if target.exists() {
+            eprintln!("Target path {} already exists", target.display());
+            continue;
         }
-        Err(e) => {
-            eprintln!(
-                "Failed to symlink {} to {}: {}",
-                self_path.display(),
-                cmd.path.display(),
-                e
-            );
+
+        match do_symlink(&self_path, &target) {
+            Ok(()) => {
+                println!("Symlinked {} to {}", self_path.display(), target.display());
+            }
+            Err(e) => {
+                eprintln!(
+                    "Failed to symlink {} to {}: {}",
+                    self_path.display(),
+                    target.display(),
+                    e
+                );
+            }
         }
     }
 }
