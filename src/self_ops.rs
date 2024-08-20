@@ -26,21 +26,21 @@ struct LinkSubcommand {
 
     /// The binaries to symlink. If specified, `path` must be a directory.
     binaries: Vec<String>,
+
+    /// Delete the target files if they exist.
+    #[clap(short, long)]
+    force: bool,
 }
 
-pub fn entry() {
+pub fn entry() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match &cli.cmd {
-        Cmd::Link(link) => {
-            handle_link(&cli, link);
-        }
-        Cmd::InitConfig => {
-            handle_init_config(&cli);
-        }
+        Cmd::Link(link) => handle_link(&cli, link),
+        Cmd::InitConfig => handle_init_config(&cli),
     }
 }
 
-fn handle_link(_cli: &Cli, cmd: &LinkSubcommand) {
+fn handle_link(_cli: &Cli, cmd: &LinkSubcommand) -> anyhow::Result<()> {
     let self_path = std::env::current_exe().unwrap();
 
     #[cfg(windows)]
@@ -69,10 +69,29 @@ fn handle_link(_cli: &Cli, cmd: &LinkSubcommand) {
             .collect()
     };
 
+    let mut any_failed = false;
     for target in symlink_targets {
         if target.exists() {
-            eprintln!("Target path {} already exists", target.display());
-            continue;
+            if cmd.force {
+                match std::fs::remove_file(&target) {
+                    Ok(()) => {
+                        println!("Removed existing file at {}", target.display());
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "Failed to remove existing file at {}: {}",
+                            target.display(),
+                            e
+                        );
+                        any_failed = true;
+                        continue;
+                    }
+                }
+            } else {
+                eprintln!("Target file already exists at {}", target.display());
+                any_failed = true;
+                continue;
+            }
         }
 
         match do_symlink(&self_path, &target) {
@@ -86,20 +105,28 @@ fn handle_link(_cli: &Cli, cmd: &LinkSubcommand) {
                     target.display(),
                     e
                 );
+                any_failed = true;
             }
         }
     }
+
+    if any_failed {
+        anyhow::bail!("Some symlinks failed");
+    } else {
+        Ok(())
+    }
 }
 
-fn handle_init_config(_cli: &Cli) {
+fn handle_init_config(_cli: &Cli) -> anyhow::Result<()> {
     let config_path = crate::config::config_path();
     if config_path.exists() {
-        eprintln!("Config file already exists at {}", config_path.display());
-        return;
+        anyhow::bail!("Config file already exists at {}", config_path.display());
     }
 
     let default_config = crate::config::Config::default();
-    let default_config_json = serde_json_lenient::to_string_pretty(&default_config).unwrap();
-    std::fs::write(&config_path, default_config_json).unwrap();
+    let default_config_json = serde_json_lenient::to_string_pretty(&default_config)?;
+    std::fs::write(&config_path, default_config_json)?;
     println!("Config file created at {}", config_path.display());
+
+    Ok(())
 }

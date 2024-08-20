@@ -1,4 +1,4 @@
-pub fn entry(binary_name: &str, argv: &[String]) {
+pub fn entry(binary_name: &str, argv: &[String]) -> anyhow::Result<()> {
     // Check if the next argument starts with "+"
     // If it does, it specifies which version of the toolchain to use
     // Otherwise, we check if we have specified the toolchain in the environment variable
@@ -7,4 +7,8 @@ pub fn entry(binary_name: &str, argv: &[String]) {
         .and_then(|arg| arg.strip_prefix('+'))
         .map(|toolchain| toolchain.to_string())
         .or_else(|| std::env::var("LUNIK_TOOLCHAIN").ok());
+
+    let cfg = crate::config::read_config()?;
+
+    Ok(())
 }

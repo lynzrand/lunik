@@ -11,13 +11,20 @@ fn main() {
     let binary_name = args
         .first()
         .and_then(|arg0| extract_arg0_executable_name(arg0));
-    if let Some(binary_name) = binary_name {
+    let res = if let Some(binary_name) = binary_name {
         match binary_name.as_str() {
             BINARY_NAME => self_ops::entry(),
             _ => mux::entry(&binary_name, &args[1..]),
         }
     } else {
         self_ops::entry()
+    };
+    match res {
+        Ok(()) => {}
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
     }
 }
 
