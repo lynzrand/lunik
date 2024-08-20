@@ -100,10 +100,10 @@ pub fn try_get_executable(
         } else {
             // If the executable does not exist, try to use the fallback toolchain
             if let Some(fallback) = &toolchain_info.fallback {
-                eprintln!(
-                    "Executable not found in toolchain '{}', trying fallback '{}'",
-                    real_toolchain_name, fallback
-                );
+                // eprintln!(
+                //     "Executable not found in toolchain '{}', trying fallback '{}'",
+                //     real_toolchain_name, fallback
+                // );
                 toolchain_name = fallback;
             } else {
                 return Err(anyhow::anyhow!(
