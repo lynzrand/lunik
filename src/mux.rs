@@ -1,4 +1,7 @@
-use std::path::PathBuf;
+use std::{
+    borrow::{Borrow, Cow},
+    path::PathBuf,
+};
 
 use crate::config::{Config, ToolchainInfo};
 
@@ -54,20 +57,28 @@ pub fn try_get_executable(
 
     loop {
         // Get information about the toolchain
-        let toolchain_info = cfg
-            .toolchain
-            .get(toolchain_name)
-            .or_else(|| {
-                toolchain_name
-                    .parse::<crate::channel::Channel>()
-                    .ok()
-                    .and_then(|ch| cfg.toolchain.get(&ch.to_string()))
-            })
-            .ok_or_else(|| anyhow::anyhow!("Toolchain not found: {}", toolchain_name))?;
+        let (real_toolchain_name, toolchain_info) =
+            if let Some(info) = cfg.toolchain.get(toolchain_name) {
+                (Cow::Borrowed(toolchain_name), info)
+            } else {
+                match toolchain_name.parse::<super::channel::Channel>() {
+                    Ok(ch) => {
+                        let real_name = ch.to_string();
+                        if let Some(info) = cfg.toolchain.get(&real_name) {
+                            (Cow::Owned(real_name), info)
+                        } else {
+                            return Err(anyhow::anyhow!("Toolchain not found: {}", toolchain_name));
+                        }
+                    }
+                    Err(_) => {
+                        return Err(anyhow::anyhow!("Toolchain not found: {}", toolchain_name));
+                    }
+                }
+            };
 
         // Get the executable path
         let executable_path =
-            get_toolchain_executable(toolchain_name, toolchain_info, executable_name);
+            get_toolchain_executable(&real_toolchain_name, toolchain_info, executable_name);
 
         if executable_path.exists() {
             return Ok(executable_path);
@@ -76,7 +87,7 @@ pub fn try_get_executable(
             if let Some(fallback) = &toolchain_info.fallback {
                 eprintln!(
                     "Executable not found in toolchain '{}', trying fallback '{}'",
-                    toolchain_name, fallback
+                    real_toolchain_name, fallback
                 );
                 toolchain_name = fallback;
             } else {
