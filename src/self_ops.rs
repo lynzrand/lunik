@@ -23,6 +23,8 @@ enum Cmd {
     Channel(channel::ChannelCommandline),
 
     Default(channel::DefaultSubcommand),
+
+    Which(WhichSubcommand),
 }
 
 /// Symlink the current binary to the specified path(s).
@@ -55,6 +57,7 @@ pub fn entry() -> anyhow::Result<()> {
         Cmd::InitConfig => handle_init_config(&cli),
         Cmd::Channel(cmd) => channel::entry(&cli, cmd),
         Cmd::Default(default) => channel::handle_default(&cli, default),
+        Cmd::Which(which) => handle_which(&cli, which),
     }
 }
 
@@ -145,6 +148,28 @@ fn handle_init_config(_cli: &Cli) -> anyhow::Result<()> {
     let default_config_json = serde_json_lenient::to_string_pretty(&default_config)?;
     std::fs::write(&config_path, default_config_json)?;
     println!("Config file created at {}", config_path.display());
+
+    Ok(())
+}
+
+/// Get the path of the binary in the specified toolchain.
+#[derive(clap::Parser, Debug)]
+#[clap(override_usage = "lunik which <BINARY> | lunik which <TOOLCHAIN> <BINARY>")]
+struct WhichSubcommand {
+    #[clap(hide(true))]
+    arg1: String,
+
+    #[clap(hide(true))]
+    arg2: Option<String>,
+}
+
+fn handle_which(_cli: &Cli, cmd: &WhichSubcommand) -> anyhow::Result<()> {
+    let cfg = crate::config::read_config()?;
+    let toolchain = cmd.arg2.as_deref();
+    let executable_name = &cmd.arg1;
+
+    let executable_path = crate::mux::try_get_executable(&cfg, toolchain, executable_name)?;
+    println!("{}", executable_path.display());
 
     Ok(())
 }

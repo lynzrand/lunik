@@ -38,7 +38,7 @@ pub fn entry(binary_name: &str, argv: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn try_get_executable(
+pub fn try_get_executable(
     cfg: &Config,
     toolchain: Option<&str>,
     executable_name: &str,
@@ -50,6 +50,12 @@ fn try_get_executable(
         let toolchain_info = cfg
             .toolchain
             .get(toolchain_name)
+            .or_else(|| {
+                toolchain_name
+                    .parse::<crate::channel::Channel>()
+                    .ok()
+                    .and_then(|ch| cfg.toolchain.get(&ch.to_string()))
+            })
             .ok_or_else(|| anyhow::anyhow!("Toolchain not found: {}", toolchain_name))?;
 
         // Get the executable path
