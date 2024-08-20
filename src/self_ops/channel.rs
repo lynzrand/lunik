@@ -194,7 +194,7 @@ fn full_install(
         tracing::info!("Moved existing bin directory to {}", backup_dir.display());
     }
     std::fs::rename(&temp_bin_dir, &bin_dir)?;
-    std::fs::remove_dir_all(&backup_dir).ok();
+    std::fs::remove_dir_all(&backup_dir)?;
 
     let backup_dir = target_dir.join(format!("{}-backup", CORE_DIR));
     if core_dir.exists() {
@@ -202,7 +202,7 @@ fn full_install(
         tracing::info!("Moved existing core directory to {}", backup_dir.display());
     }
     std::fs::rename(&temp_core_dir, &core_dir)?;
-    std::fs::remove_dir_all(&backup_dir).ok();
+    std::fs::remove_dir_all(&backup_dir)?;
 
     tracing::info!("Installation completed");
 
