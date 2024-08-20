@@ -3,6 +3,7 @@ mod toolchain;
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
+use tracing_subscriber::Layer;
 
 /// The MoonBit toolchain multiplexer.
 ///
@@ -41,6 +42,14 @@ struct LinkSubcommand {
 }
 
 pub fn entry() -> anyhow::Result<()> {
+    tracing_subscriber::FmtSubscriber::builder()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::builder()
+                .with_default_directive(tracing_subscriber::filter::LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
+        .init();
+
     let cli = Cli::parse();
     match &cli.cmd {
         Cmd::Link(link) => handle_link(&cli, link),
@@ -138,25 +147,5 @@ fn handle_init_config(_cli: &Cli) -> anyhow::Result<()> {
     std::fs::write(&config_path, default_config_json)?;
     println!("Config file created at {}", config_path.display());
 
-    Ok(())
-}
-
-/// Specify the default toolchain
-#[derive(clap::Parser, Debug)]
-struct DefaultSubcommand {
-    /// The default toolchain name
-    toolchain: String,
-}
-
-fn handle_default(_cli: &Cli, cmd: &DefaultSubcommand) -> anyhow::Result<()> {
-    let mut config = crate::config::read_config()?;
-    if !config.toolchain.contains_key(&cmd.toolchain) {
-        anyhow::bail!("Toolchain not found: {}", cmd.toolchain);
-    }
-    config.default.clone_from(&cmd.toolchain);
-    let config_path = crate::config::config_path();
-    let config_json = serde_json_lenient::to_string_pretty(&config)?;
-    std::fs::write(config_path, config_json)?;
-    println!("Default toolchain set to {}", cmd.toolchain);
     Ok(())
 }

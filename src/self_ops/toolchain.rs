@@ -6,7 +6,7 @@ use tempfile::TempDir;
 
 use crate::{
     channel::{Channel, ChannelKind},
-    config::{read_config, save_config, ChannelInfo, BIN_DIR, CORE_DIR},
+    config::{read_config, save_config, ChannelInfo, ToolchainInfo, BIN_DIR, CORE_DIR},
 };
 
 const MOONBIT_CLI_WEB: &str = "https://cli.moonbitlang.com";
@@ -118,7 +118,7 @@ fn full_install(
     tracing::info!("Begin installation in channel {}", channel);
 
     // Download and unpack in a temporary directory
-    let tempdir_ = TempDir::with_prefix(format!("lunik-install-{}", channel))?;
+    let tempdir_ = TempDir::with_prefix_in(format!("lunik-install-{}", channel), target_dir)?;
     let tempdir = tempdir_.path();
     tracing::debug!("Using temporary directory: {}", tempdir.display());
 
@@ -211,6 +211,8 @@ fn handle_add(cli: &super::Cli, cmd: &AddSubcommand) -> anyhow::Result<()> {
     let mut config = config;
     let channel_info = ChannelInfo::default();
     config.channels.insert(cmd.channel.clone(), channel_info);
+    let toolchain_info = ToolchainInfo::default();
+    config.toolchain.insert(cmd.channel.clone(), toolchain_info);
     save_config(&config)?;
 
     Ok(())
@@ -263,6 +265,7 @@ fn handle_remove(cli: &super::Cli, cmd: &RemoveSubcommand) -> anyhow::Result<()>
 
     let mut config = config;
     config.channels.remove(&cmd.channel);
+    config.toolchain.remove(&cmd.channel);
     save_config(&config)?;
 
     Ok(())
@@ -273,7 +276,7 @@ pub struct ListSubcommand {}
 
 fn handle_list(cli: &super::Cli, _cmd: &ListSubcommand) -> anyhow::Result<()> {
     let config = read_config().context("When reading config")?;
-    for (name, _) in &config.channels {
+    for name in config.toolchain.keys() {
         println!("{}", name);
     }
 
