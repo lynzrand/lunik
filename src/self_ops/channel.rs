@@ -77,6 +77,22 @@ fn download_file(
 }
 
 fn untar(tarball: &std::path::Path, target: &std::path::Path) -> anyhow::Result<()> {
+    if tracing::span_enabled!(tracing::Level::DEBUG) {
+        tracing::debug!("Untarring {} to {}", tarball.display(), target.display());
+        // Print the contents of the tarball
+        let tar_gz = std::fs::File::open(tarball)?;
+        let tar = flate2::read::GzDecoder::new(tar_gz);
+        let mut archive = tar::Archive::new(tar);
+        for it in archive
+            .entries()
+            .context("Failed to open the TAR archive")?
+        {
+            let entry = it?;
+            let path = entry.path()?;
+            tracing::debug!("Entry: {}", path.display());
+        }
+    }
+
     let tar_gz = std::fs::File::open(tarball)?;
     let tar = flate2::read::GzDecoder::new(tar_gz);
     let mut archive = tar::Archive::new(tar);
@@ -228,9 +244,11 @@ fn full_install(
     let core_tarball = tempdir.join("core.tar.gz");
 
     tracing::info!("Downloading files");
+    tracing::debug!("Downloading moon binaries from {}", bin_url);
     download_file(client, &bin_url, &bin_tarball, "moon binaries", quiet).context(
         "Failed to download moon binaries. You might want to check if the version exists.",
     )?;
+    tracing::debug!("Downloading moon core from {}", core_url);
     download_file(client, &core_url, &core_tarball, "moon core", quiet)
         .context("Failed to download moon core. You might want to check if the version exists.")?;
 
@@ -238,20 +256,28 @@ fn full_install(
     let temp_lib_dir = tempdir.join("lib");
 
     tracing::info!("Unpacking files");
-
+    tracing::debug!("Unpacking moon binaries to {}", temp_bin_dir.display());
     untar(&bin_tarball, &temp_bin_dir).context("Failed to unpack moon binaries")?;
+    tracing::debug!("Unpacking moon core to {}", temp_lib_dir.display());
     untar(&core_tarball, &temp_lib_dir).context("Failed to unpack moon core")?;
 
     #[cfg(unix)]
     {
+        tracing::debug!(
+            "Adding executable permissions recursively to {}",
+            temp_bin_dir.display()
+        );
         add_permissions_recursive(&temp_bin_dir)
             .context("Failed to add permissions recursively")?;
     }
 
     tracing::info!("Verifying checksums");
-
-    // Verify checksums
+    tracing::debug!("Fetching checksum info from {}", sha_url);
     let sha_info = client.get(sha_url).send()?.text()?;
+    tracing::debug!(
+        "Verifying checksums for files in {}",
+        temp_bin_dir.display()
+    );
     verify_outputs(&temp_bin_dir, &sha_info).context("Failed to verify checksums")?;
 
     tracing::info!("Installing files");
@@ -269,6 +295,8 @@ fn full_install(
             // Delete the new directories
             std::fs::remove_dir_all(&temp_bin_dir).ok();
             std::fs::remove_dir_all(&temp_lib_dir).ok();
+            std::fs::remove_dir_all(&bin_dir).ok();
+            std::fs::remove_dir_all(&lib_dir).ok();
             // Move back the old directories
             if bin_backup_dir.exists() {
                 std::fs::rename(&bin_backup_dir, &bin_dir).ok();
@@ -281,28 +309,76 @@ fn full_install(
 
     // Remove any existing backup directories
     if bin_backup_dir.exists() {
+        tracing::debug!(
+            "Removing old bin backup directory {}",
+            bin_backup_dir.display()
+        );
         std::fs::remove_dir_all(&bin_backup_dir).context("Failed to remove old bin backup dir")?;
     }
     if lib_backup_dir.exists() {
+        tracing::debug!(
+            "Removing old lib backup directory {}",
+            lib_backup_dir.display()
+        );
         std::fs::remove_dir_all(&lib_backup_dir).context("Failed to remove old lib backup dir")?;
     }
 
     // Backup the current directories and install the new ones
     if bin_dir.exists() {
+        tracing::debug!(
+            "Backing up current bin directory to {}",
+            bin_backup_dir.display()
+        );
         std::fs::rename(&bin_dir, &bin_backup_dir)
             .context("Failed to backup the current bin dir")?;
     }
-    std::fs::rename(&temp_bin_dir, &bin_dir).context("Failed to install the new bin dir")?;
 
     if lib_dir.exists() {
+        tracing::debug!(
+            "Backing up current lib directory to {}",
+            lib_backup_dir.display()
+        );
         std::fs::rename(&lib_dir, &lib_backup_dir)
             .context("Failed to backup the current lib dir")?;
     }
+
+    tracing::debug!(
+        "Installing new bin directory from {} to {}",
+        temp_bin_dir.display(),
+        bin_dir.display()
+    );
+    std::fs::rename(&temp_bin_dir, &bin_dir).context("Failed to install the new bin dir")?;
+    tracing::debug!(
+        "Installing new lib directory from {} to {}",
+        temp_lib_dir.display(),
+        lib_dir.display()
+    );
     std::fs::rename(&temp_lib_dir, &lib_dir).context("Failed to install the new lib dir")?;
 
     // Ensure everything in /bin exist in home directory
+    tracing::debug!(
+        "Ensuring all executables are linked in {}",
+        bin_dir.display()
+    );
     ensure_all_executables_are_linked(&bin_dir)
         .context("Failed to symlink some executables to bin directory")?;
+
+    // Check moon and moonrun versions
+    let moon_version = crate::mux::executable_entry(config, Some(&channel.to_string()), "moon")
+        .context("Failed to find executable `moon`")?
+        .arg("version")
+        .output()
+        .context("Failed to run `moon version`")?;
+    let moon_version = String::from_utf8_lossy(&moon_version.stdout);
+    let moonrun_version =
+        crate::mux::executable_entry(config, Some(&channel.to_string()), "moonrun")
+            .context("Failed to find executable `moonrun`")?
+            .arg("--version")
+            .output()
+            .context("Failed to run `moonrun --version`")?;
+    let moonrun_version = String::from_utf8_lossy(&moonrun_version.stdout);
+    tracing::info!("Installed moon version: {}", moon_version.trim());
+    tracing::info!("Installed moonrun version: {}", moonrun_version.trim());
 
     // Compile core libraries
     tracing::info!("Compiling core libraries");

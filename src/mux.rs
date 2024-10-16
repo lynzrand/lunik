@@ -68,12 +68,11 @@ pub fn configure_cmd_environment(
     if let Some(toolchain) = toolchain_name {
         cmd.env(LUNIK_TOOLCHAIN_ENV_NAME, toolchain);
     }
-    Ok(
-        if std::env::var(crate::config::MOON_CORE_OVERRIDE_ENV_NAME).is_err() {
-            let core_lib_path = try_get_core_lib(cfg, toolchain_name)?;
-            cmd.env(crate::config::MOON_CORE_OVERRIDE_ENV_NAME, core_lib_path);
-        },
-    )
+    if std::env::var(crate::config::MOON_CORE_OVERRIDE_ENV_NAME).is_err() {
+        let core_lib_path = try_get_core_lib(cfg, toolchain_name)?;
+        cmd.env(crate::config::MOON_CORE_OVERRIDE_ENV_NAME, core_lib_path);
+    };
+    Ok(())
 }
 
 pub fn try_get_executable(
