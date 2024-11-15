@@ -3,6 +3,7 @@ mod init;
 
 use std::path::{Path, PathBuf};
 
+use anyhow::Context;
 use clap::Parser;
 
 use crate::mux::LUNIK_TOOLCHAIN_ENV_NAME;
@@ -168,6 +169,9 @@ fn handle_init_config(allow_existing: bool) -> anyhow::Result<()> {
 
     let default_config = crate::config::Config::default();
     let default_config_json = serde_json_lenient::to_string_pretty(&default_config)?;
+    if let Some(config_dir) = config_path.parent() {
+        std::fs::create_dir_all(config_dir).context("Failed to create config dir")?;
+    }
     std::fs::write(&config_path, default_config_json)?;
     println!("Config file created at {}", config_path.display());
 
