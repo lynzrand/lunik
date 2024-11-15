@@ -46,7 +46,7 @@ impl Default for Channel {
     }
 }
 
-#[derive(Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub enum ChannelKind {
     /// Latest public release.
     Latest,

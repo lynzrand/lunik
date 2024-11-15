@@ -136,6 +136,7 @@ rm -f "$moonbit_dest" ||
 
 pushd "$bin_dir" >/dev/null || error "Failed to change directory to \"$bin_dir\""
   for i in *; do
+    [ "$i" == "libtcc1.a" ] && continue
     chmod +x "$i" ||
       error "Failed to make \"$i\" executable"
   done
@@ -164,6 +165,9 @@ echo "Bundling core ..."
 PATH=$bin_dir $exe bundle --all --source-dir "$lib_dir"/core ||
   error "Failed to bundle core"
 
+PATH=$bin_dir $exe bundle --target wasm-gc --source-dir "$lib_dir"/core --quiet ||
+  error "Failed to bundle core to wasm-gc"
+
 tildify() {
   if [[ $1 = $HOME/* ]]; then
     local replacement=\~/
@@ -175,7 +179,9 @@ tildify() {
 
 success "moonbit was installed successfully to $Bold_Green$(tildify "$moon_home")"
 
-echo "To verify the download binaries, you can check https://www.moonbitlang.com/download#verifying-binaries for instructions."
+echo "To verify the downloaded binaries, check https://www.moonbitlang.com/download#verifying-binaries for instructions."
+
+echo "To know how to add shell completions, run 'moon shell-completion --help'"
 
 if command -v moon >/dev/null 2>&1; then
   echo "Run 'moon help' to get started"
