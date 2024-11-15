@@ -8,7 +8,7 @@ use sha2::Digest;
 use tempfile::TempDir;
 
 use crate::{
-    channel::Channel,
+    channel::{Channel, ChannelKind},
     config::{read_config, save_config, ChannelInfo, Config, ToolchainInfo, BIN_DIR, LIB_DIR},
     mux::real_toolchain_name,
 };
@@ -27,6 +27,10 @@ fn channel_cli_file_url(ch: &Channel) -> String {
 }
 
 fn channel_core_file_url(ch: &Channel) -> String {
+    if ch.channel == ChannelKind::Bleeding {
+        // https://docs.github.com/en/repositories/working-with-files/using-files/downloading-source-code-archives#source-code-archive-urls
+        return "https://github.com/moonbitlang/core/archive/refs/heads/main.tar.gz".into();
+    }
     format!(
         "{base}/cores/core-{ver}.tar.gz",
         base = MOONBIT_CLI_WEB,
@@ -260,6 +264,23 @@ fn full_install(
     untar(&bin_tarball, &temp_bin_dir).context("Failed to unpack moon binaries")?;
     tracing::debug!("Unpacking moon core to {}", temp_lib_dir.display());
     untar(&core_tarball, &temp_lib_dir).context("Failed to unpack moon core")?;
+
+    // Rename the first `core-*/` under `temp_lib_dir` to `core/` if there is one.
+    // This is because the `core` tarball from GitHub, once extracted,
+    // will become a directory named `core-<github.ref>`.
+    let maybe_branched_core_dir = temp_lib_dir.read_dir()?.find_map(|entry| {
+        let path = entry.ok()?.path();
+        (path.is_dir() && path.file_name()?.to_string_lossy().starts_with("core-")).then_some(path)
+    });
+    if let Some(branched_core_dir) = maybe_branched_core_dir {
+        let core_dir = temp_lib_dir.join("core");
+        tracing::debug!(
+            "Renaming moon core directory from {} to {}",
+            branched_core_dir.display(),
+            core_dir.display()
+        );
+        std::fs::rename(branched_core_dir, &core_dir)?;
+    }
 
     #[cfg(unix)]
     {
