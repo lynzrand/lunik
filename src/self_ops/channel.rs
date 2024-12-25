@@ -595,10 +595,13 @@ pub fn handle_default(_cli: &super::Cli, cmd: &DefaultSubcommand) -> anyhow::Res
     // mkdir -p $MOON_HOME/lib
     std::fs::create_dir_all(&toolchain_lib_dir).context("Unable to create core directory")?;
 
-    // Remove original core before symlinking
-    if core_dir.exists() {
-        tracing::info!("Removing core directory: {}", toolchain_core_dir.display());
-        std::fs::remove_dir_all(&toolchain_core_dir).context("Unable to remove core directory")?;
+    // Remove (or unlink) the original core before symlinking.
+    // Note that the original core can be either a symlink (we are already handling toolchains)
+    // or a directory (this is a new installation).
+    if core_dir.try_exists()? || core_dir.is_symlink() {
+        // Either `core_dir` exists (or is a valid symlink), or it is an invalid symlink.
+        tracing::info!("Removing core directory: {}", core_dir.display());
+        std::fs::remove_dir_all(&core_dir).context("Unable to remove core directory")?;
     }
     match symlink_core(&toolchain_core_dir, &core_dir) {
         Ok(_) => {
