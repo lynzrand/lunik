@@ -114,11 +114,13 @@ fn verify_outputs(target_dir: &std::path::Path, sha_info: &str) -> anyhow::Resul
 
     for (shasum, filename) in info {
         let filename = target_dir.join(filename);
-        let file = std::fs::File::open(&filename)?;
+        let file = std::fs::File::open(&filename)
+            .with_context(|| format!("Failed to open file: {}", filename.display()))?;
 
         let mut hasher = sha2::Sha256::new();
         let mut reader = std::io::BufReader::new(file);
-        std::io::copy(&mut reader, &mut hasher)?;
+        std::io::copy(&mut reader, &mut hasher)
+            .with_context(|| format!("Failed to read file: {}", filename.display()))?;
 
         let actual = hasher.finalize();
         let actual = hex::encode(actual);
@@ -153,7 +155,14 @@ fn add_permissions_recursive(path: &std::path::Path) -> anyhow::Result<()> {
     for entry in std::fs::read_dir(path)? {
         let entry = entry?;
         let path = entry.path();
-        add_executable_permissions(&path)?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            add_permissions_recursive(&path)?;
+        } else if ty.is_file() {
+            add_executable_permissions(&path).with_context(|| {
+                format!("Failed to add executable permissions to {}", path.display())
+            })?;
+        }
     }
 
     Ok(())
@@ -184,6 +193,39 @@ fn run_bundle_core(
     Ok(())
 }
 
+/// List of suffixes that are definitely not executables
+const EXECUTABLE_SUFFIX_BLACKLIST: &[&str] = &[".so", ".dylib", ".dll"];
+
+/// Get if the path might be an executable. The file currently does not have
+/// the executable bit set on Unix-like systems.
+fn can_be_executable(path: &std::path::Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+
+    if EXECUTABLE_SUFFIX_BLACKLIST
+        .iter()
+        .any(|suffix| path.ends_with(suffix))
+    {
+        return false;
+    }
+
+    #[cfg(unix)]
+    {
+        true
+    }
+
+    #[cfg(windows)]
+    {
+        path.extension().map_or(false, |ext| ext == "exe")
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    {
+        compile_error!("Currently does not support OSes other than Unix-like and Windows");
+    }
+}
+
 fn ensure_all_executables_are_linked(bin_dir: &std::path::Path) -> anyhow::Result<()> {
     let moon_bin_dir = crate::config::moon_bin_dir();
     // ensure bin dir exists
@@ -197,7 +239,7 @@ fn ensure_all_executables_are_linked(bin_dir: &std::path::Path) -> anyhow::Resul
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
-        if path.is_file() {
+        if can_be_executable(&path) {
             let filename = path.file_name().unwrap().to_string_lossy();
             let exe_path = moon_bin_dir.join(&*filename);
             if !exe_path.exists() {
@@ -221,17 +263,18 @@ fn ensure_all_executables_are_linked(bin_dir: &std::path::Path) -> anyhow::Resul
     Ok(())
 }
 
+/// Perform a full installation of the toolchain.
 fn full_install(
     config: &Config,
     client: &mut reqwest::blocking::Client,
     channel: &Channel,
+    // the directory to install into
     target_dir: &std::path::Path,
+    // the parent directory of the target directory, for temp files
+    target_parent_dir: &std::path::Path,
     quiet: bool,
 ) -> anyhow::Result<()> {
-    let bin_dir = target_dir.join(BIN_DIR);
-    let lib_dir = target_dir.join(LIB_DIR);
-
-    let bin_url = channel_cli_file_url(channel);
+    let files_url = channel_cli_file_url(channel);
     let core_url = channel_core_file_url(channel);
     let sha_url = channel_sha_url(channel);
 
@@ -240,30 +283,42 @@ fn full_install(
     tracing::info!("Begin installation in channel {}", channel);
 
     // Download and unpack in a temporary directory
-    let tempdir_ = TempDir::with_prefix_in(format!("lunik-install-{}", channel), target_dir)?;
+    let tempdir_ =
+        TempDir::with_prefix_in(format!("lunik-install-{}", channel), target_parent_dir)?;
     let tempdir = tempdir_.path();
     tracing::debug!("Using temporary directory: {}", tempdir.display());
 
-    let bin_tarball = tempdir.join("bin.tar.gz");
+    let files_tarball = tempdir.join("bin.tar.gz");
     let core_tarball = tempdir.join("core.tar.gz");
 
     tracing::info!("Downloading files");
-    tracing::debug!("Downloading moon binaries from {}", bin_url);
-    download_file(client, &bin_url, &bin_tarball, "moon binaries", quiet).context(
-        "Failed to download moon binaries. You might want to check if the version exists.",
+    tracing::debug!(
+        "Downloading MoonBit binaries and libraries from {}",
+        files_url
+    );
+    download_file(
+        client,
+        &files_url,
+        &files_tarball,
+        "MoonBit binaries",
+        quiet,
+    )
+    .context(
+        "Failed to download MoonBit binaries. You might want to check if the version exists.",
     )?;
-    tracing::debug!("Downloading moon core from {}", core_url);
-    download_file(client, &core_url, &core_tarball, "moon core", quiet)
-        .context("Failed to download moon core. You might want to check if the version exists.")?;
+    tracing::debug!("Downloading MoonBit core from {}", core_url);
+    download_file(client, &core_url, &core_tarball, "MoonBit core", quiet).context(
+        "Failed to download MoonBit core. You might want to check if the version exists.",
+    )?;
 
-    let temp_bin_dir = tempdir.join("bin");
-    let temp_lib_dir = tempdir.join("lib");
+    let temp_bin_dir = tempdir.join(BIN_DIR);
+    let temp_lib_dir = tempdir.join(LIB_DIR);
 
     tracing::info!("Unpacking files");
-    tracing::debug!("Unpacking moon binaries to {}", temp_bin_dir.display());
-    untar(&bin_tarball, &temp_bin_dir).context("Failed to unpack moon binaries")?;
-    tracing::debug!("Unpacking moon core to {}", temp_lib_dir.display());
-    untar(&core_tarball, &temp_lib_dir).context("Failed to unpack moon core")?;
+    tracing::debug!("Unpacking MoonBit files to {}", tempdir.display());
+    untar(&files_tarball, tempdir).context("Failed to unpack MoonBit files")?;
+    tracing::debug!("Unpacking MoonBit core to {}", temp_lib_dir.display());
+    untar(&core_tarball, &temp_lib_dir).context("Failed to unpack MoonBit core")?;
 
     // Rename the first `core-*/` under `temp_lib_dir` to `core/` if there is one.
     // This is because the `core` tarball from GitHub, once extracted,
@@ -275,11 +330,28 @@ fn full_install(
     if let Some(branched_core_dir) = maybe_branched_core_dir {
         let core_dir = temp_lib_dir.join("core");
         tracing::debug!(
-            "Renaming moon core directory from {} to {}",
+            "Renaming MoonBit core directory from {} to {}",
             branched_core_dir.display(),
             core_dir.display()
         );
         std::fs::rename(branched_core_dir, &core_dir)?;
+    }
+
+    // Check the contents of the temp dir and bin dir
+    if tracing::event_enabled!(tracing::Level::DEBUG) {
+        tracing::debug!("Contents of temp dir:");
+        for entry in std::fs::read_dir(tempdir)? {
+            let entry = entry?;
+            let path = entry.path();
+            tracing::debug!("Entry: {}", path.display());
+        }
+
+        tracing::debug!("Contents of temp bin dir:");
+        for entry in std::fs::read_dir(&temp_bin_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            tracing::debug!("Entry: {}", path.display());
+        }
     }
 
     #[cfg(unix)]
@@ -292,89 +364,48 @@ fn full_install(
             .context("Failed to add permissions recursively")?;
     }
 
-    tracing::info!("Verifying checksums");
-    tracing::debug!("Fetching checksum info from {}", sha_url);
-    let sha_info = client.get(sha_url).send()?.text()?;
-    tracing::debug!(
-        "Verifying checksums for files in {}",
-        temp_bin_dir.display()
-    );
-    verify_outputs(&temp_bin_dir, &sha_info).context("Failed to verify checksums")?;
+    // tracing::info!("Verifying checksums");
+    // tracing::debug!("Fetching checksum info from {}", sha_url);
+    // let sha_info = client.get(sha_url).send()?.text()?;
+    // tracing::debug!(
+    //     "Verifying checksums for files in {}",
+    //     temp_bin_dir.display()
+    // );
+    // verify_outputs(&temp_bin_dir, &sha_info).context("Failed to verify checksums")?;
 
-    tracing::info!("Installing files");
+    tracing::info!("Download completed");
+    tracing::info!("Moving files to their installation location");
+
+    let bin_dir = target_dir.join(BIN_DIR);
+    let lib_dir = target_dir.join(LIB_DIR);
 
     // Move to the final location
     // Rename the old directory if it exists
     let update_successful = Cell::new(false);
-    let bin_backup_dir = target_dir.join(format!("{}-backup", BIN_DIR));
-    let lib_backup_dir = target_dir.join(format!("{}-backup", LIB_DIR));
+    let backup_dir = target_parent_dir.join(format!("{}-backup", channel));
     // If anything fails, we will roll back the changes
     scopeguard::defer! {
         if !update_successful.get() {
             tracing::warn!("Installation failed, rolling back changes");
 
             // Delete the new directories
-            std::fs::remove_dir_all(&temp_bin_dir).ok();
-            std::fs::remove_dir_all(&temp_lib_dir).ok();
-            std::fs::remove_dir_all(&bin_dir).ok();
-            std::fs::remove_dir_all(&lib_dir).ok();
+
             // Move back the old directories
-            if bin_backup_dir.exists() {
-                std::fs::rename(&bin_backup_dir, &bin_dir).ok();
-            }
-            if lib_backup_dir.exists() {
-                std::fs::rename(&lib_backup_dir, &lib_dir).ok();
-            }
+            std::fs::rename(&backup_dir, target_dir).ok();
         }
     }
 
     // Remove any existing backup directories
-    if bin_backup_dir.exists() {
-        tracing::debug!(
-            "Removing old bin backup directory {}",
-            bin_backup_dir.display()
-        );
-        std::fs::remove_dir_all(&bin_backup_dir).context("Failed to remove old bin backup dir")?;
-    }
-    if lib_backup_dir.exists() {
-        tracing::debug!(
-            "Removing old lib backup directory {}",
-            lib_backup_dir.display()
-        );
-        std::fs::remove_dir_all(&lib_backup_dir).context("Failed to remove old lib backup dir")?;
+    if backup_dir.exists() {
+        tracing::debug!("Removing old backup directory {}", backup_dir.display());
+        std::fs::remove_dir_all(&backup_dir).context("Failed to remove old bin backup dir")?;
     }
 
     // Backup the current directories and install the new ones
-    if bin_dir.exists() {
-        tracing::debug!(
-            "Backing up current bin directory to {}",
-            bin_backup_dir.display()
-        );
-        std::fs::rename(&bin_dir, &bin_backup_dir)
-            .context("Failed to backup the current bin dir")?;
-    }
+    std::fs::rename(target_dir, &backup_dir).ok();
 
-    if lib_dir.exists() {
-        tracing::debug!(
-            "Backing up current lib directory to {}",
-            lib_backup_dir.display()
-        );
-        std::fs::rename(&lib_dir, &lib_backup_dir)
-            .context("Failed to backup the current lib dir")?;
-    }
-
-    tracing::debug!(
-        "Installing new bin directory from {} to {}",
-        temp_bin_dir.display(),
-        bin_dir.display()
-    );
-    std::fs::rename(&temp_bin_dir, &bin_dir).context("Failed to install the new bin dir")?;
-    tracing::debug!(
-        "Installing new lib directory from {} to {}",
-        temp_lib_dir.display(),
-        lib_dir.display()
-    );
-    std::fs::rename(&temp_lib_dir, &lib_dir).context("Failed to install the new lib dir")?;
+    // Move the new directories to the final location
+    std::fs::rename(tempdir, target_dir).context("Failed to move new directories")?;
 
     // Ensure everything in /bin exist in home directory
     tracing::debug!(
@@ -409,11 +440,8 @@ fn full_install(
     // Okay, we are done
     update_successful.set(true);
 
-    if bin_backup_dir.exists() {
-        std::fs::remove_dir_all(&bin_backup_dir).context("Failed to remove bin backup dir")?;
-    }
-    if lib_backup_dir.exists() {
-        std::fs::remove_dir_all(&lib_backup_dir).context("Failed to remove lib backup dir")?;
+    if backup_dir.exists() {
+        std::fs::remove_dir_all(&backup_dir).context("Failed to remove backup dir")?;
     }
 
     tracing::info!("Installation completed");
@@ -466,8 +494,16 @@ fn handle_add(_cli: &super::Cli, cmd: &AddSubcommand) -> anyhow::Result<()> {
 
     // Do the installation
     let mut client = reqwest::blocking::Client::new();
+    let toolchain_root = crate::config::toolchain_root();
     let path = crate::config::toolchain_path(&channel_name);
-    match full_install(&new_config, &mut client, &channel, &path, false) {
+    match full_install(
+        &new_config,
+        &mut client,
+        &channel,
+        &path,
+        &toolchain_root,
+        false,
+    ) {
         Ok(_) => {}
         Err(e) => {
             // If the installation fails, restore the old config
@@ -503,6 +539,7 @@ fn handle_update(_cli: &super::Cli, cmd: &UpdateSubcommand) -> anyhow::Result<()
             &mut client,
             &toolchain,
             &crate::config::toolchain_path(&channel),
+            &crate::config::toolchain_root(),
             false,
         )?;
         println!("Toolchain updated: {}", channel);

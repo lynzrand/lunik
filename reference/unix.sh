@@ -99,10 +99,14 @@ if [[ -z $target ]]; then
   error "Unsupported platform: $(uname -ms)"
 fi
 
+if [[ -n $MOONBIT_INSTALL_DEV ]]; then
+  target="$target-dev"
+fi
+
 version=${ARGUMENTS[0]:-latest}
 version=${version//+/%2B}
 
-CLI_MOONBIT="https://cli.moonbitlang.com"
+CLI_MOONBIT="%CLI_MOONBIT%"
 
 moonbit_uri="$CLI_MOONBIT/binaries/$version/moonbit-$target.tar.gz"
 core_uri="$CLI_MOONBIT/cores/core-$version.tar.gz"
@@ -110,36 +114,43 @@ core_uri="$CLI_MOONBIT/cores/core-$version.tar.gz"
 moon_home="${MOON_HOME:-$HOME/.moon}"
 bin_dir=$moon_home/bin
 exe=$bin_dir/moon
-moonbit_dest=$bin_dir/moonbit.tar.gz
+moonbit_dest=$HOME/moonbit.tar.gz
 lib_dir=$moon_home/lib
 core_dest=$lib_dir/core.tar.gz
 
-if [[ ! -d $bin_dir ]]; then
-  mkdir -p "$bin_dir" ||
-    error "Failed to create directory: \"$bin_dir\""
+if [[ -z $moon_home ]]; then
+  error "MOON_HOME is not set"
 fi
 
-if [[ ! -d $lib_dir ]]; then
-  mkdir -p "$lib_dir" ||
-    error "Failed to create directory: \"$lib_dir\""
-fi
+mkdir -p "$moon_home" ||
+  error "Failed to create directory \"$moon_home\""
 
 echo "Downloading moonbit ..."
 curl --fail --location --progress-bar --output "$moonbit_dest" "$moonbit_uri" ||
   error "Failed to download moonbit from \"$moonbit_uri\""
 
-tar xf "$moonbit_dest" --directory="$bin_dir" ||
-  error "Failed to extract moonbit to \"$bin_dir\""
+rm -rf "$moon_home/bin" ||
+  error "Failed to remove existing moonbit binaries"
+
+rm -rf "$moon_home/lib" ||
+  error "Failed to remove existing moonbit libraries"
+
+rm -rf "$moon_home/include" ||
+  error "Failed to remove existing moonbit includes"
+
+tar xf "$moonbit_dest" --directory="$moon_home" ||
+  error "Failed to extract moonbit to \"$moon_home\""
 
 rm -f "$moonbit_dest" ||
   error "Failed to remove \"$moonbit_dest\""
 
 pushd "$bin_dir" >/dev/null || error "Failed to change directory to \"$bin_dir\""
   for i in *; do
-    [ "$i" == "libtcc1.a" ] && continue
     chmod +x "$i" ||
       error "Failed to make \"$i\" executable"
   done
+  chmod +x ./internal/tcc ||
+    error "Failed to make tcc executable"
 popd >/dev/null || error "Failed to change directory to previous directory"
 
 rm -rf "$lib_dir/core" ||
@@ -147,7 +158,7 @@ rm -rf "$lib_dir/core" ||
 
 echo "Downloading core ..."
 if [[ $version == "bleeding" ]]; then
-  git clone --depth 1 https://github.com/moonbitlang/core.git "$lib_dir/core" ||
+  git clone -b llvm_backend --depth 1 https://github.com/moonbitlang/core.git "$lib_dir/core" ||
     error "Failed to clone core from github"
 else
   curl --fail --location --progress-bar --output "$core_dest" "$core_uri" ||
@@ -164,6 +175,11 @@ echo "Bundling core ..."
 
 PATH=$bin_dir $exe bundle --all --source-dir "$lib_dir"/core ||
   error "Failed to bundle core"
+
+if [[ $version == "bleeding" ]]; then
+  PATH=$bin_dir $exe bundle --target llvm --source-dir "$lib_dir"/core ||
+    error "Failed to bundle core for llvm backend"
+fi
 
 PATH=$bin_dir $exe bundle --target wasm-gc --source-dir "$lib_dir"/core --quiet ||
   error "Failed to bundle core to wasm-gc"

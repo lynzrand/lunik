@@ -91,6 +91,10 @@ pub fn config_path() -> PathBuf {
     home_dir().join(CONFIG_NAME)
 }
 
+pub fn toolchain_root() -> PathBuf {
+    lunik_dir().join(TOOLCHAIN_DEFAULT_ROOT)
+}
+
 pub fn toolchain_path(toolchain_name: &str) -> PathBuf {
     lunik_dir()
         .join(TOOLCHAIN_DEFAULT_ROOT)
