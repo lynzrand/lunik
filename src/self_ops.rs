@@ -1,7 +1,10 @@
 mod channel;
 mod init;
 
-use std::path::{Path, PathBuf};
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Context;
 use clap::Parser;
@@ -33,6 +36,9 @@ enum Cmd {
     Which(WhichSubcommand),
 
     With(WithCommand),
+
+    /// Nuke the entire MoonBit installation.
+    Nuke(NukeCommand),
 }
 
 /// Symlink the current binary to the specified path(s).
@@ -68,6 +74,7 @@ pub fn entry() -> anyhow::Result<()> {
         Cmd::Default(default) => channel::handle_default(&cli, default),
         Cmd::Which(which) => handle_which(&cli, which),
         Cmd::With(with) => handle_with(&cli, with),
+        Cmd::Nuke(cmd) => handle_nuke(&cli, cmd),
     }
 }
 
@@ -243,4 +250,49 @@ fn handle_with(_cli: &Cli, cmd: &WithCommand) -> anyhow::Result<()> {
             std::process::exit(status.code().unwrap_or(1));
         }
     }
+}
+
+/// Completely remove the MoonBit installation, wiping all toolchains, configurations, and symlinks.
+#[derive(clap::Parser, Debug)]
+struct NukeCommand {
+    /// Skip the confirmation prompt
+    #[clap(short, long)]
+    yes: bool,
+}
+
+fn handle_nuke(_cli: &Cli, cmd: &NukeCommand) -> anyhow::Result<()> {
+    if !cfg!(unix) {
+        anyhow::bail!("Nuking is only supported on Unix-like systems. Nuking on other systems is under development.");
+    }
+
+    let moon_home = crate::config::home_dir();
+
+    if !cmd.yes {
+        // Require confirmation
+        println!("WARNING: You are about to remove the entire MoonBit installation.");
+        println!("This will remove all installed toolchains, configurations, and symlinks.");
+        println!("This action cannot be undone.");
+        println!();
+        println!("The directory to be removed is:");
+        println!("{}", moon_home.display());
+        println!();
+        println!("Type 'yes' to confirm.");
+        let mut input = String::new();
+        print!("> ");
+        std::io::stdout().lock().flush()?;
+        std::io::stdin().read_line(&mut input)?;
+
+        if input.trim() == "yes" {
+            println!("You have confirmed the nuking. Proceeding...");
+        } else {
+            println!("You did not type 'yes'. Aborting.");
+            return Ok(());
+        }
+    }
+
+    // Just delete `MOON_HOME` altogether
+    std::fs::remove_dir_all(&moon_home).context("Failed to remove MoonBit installation")?;
+    println!("MoonBit installation removed. Good luck!");
+
+    Ok(())
 }

@@ -21,6 +21,7 @@ reqwest = { version = "0.12.4", default-features = false, features = [
     "rustls-tls",
     "http2",
     "charset",
+    "socks",
 ] }
 scopeguard = "1.2.0"
 serde = { version = "1.0.203", features = ["derive"] }
