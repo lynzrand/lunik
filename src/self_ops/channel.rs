@@ -607,57 +607,105 @@ pub fn handle_default(_cli: &super::Cli, cmd: &DefaultSubcommand) -> anyhow::Res
     config.default = toolchain_name.clone().into();
 
     println!("Default toolchain set to {}", cmd.toolchain);
-    // Try deleting `$MOON_HOME/lib/core` and symlink it to the default toolchain's core
-    let lib_dir = crate::config::home_dir().join("lib");
-    let core_dir = lib_dir.join("core");
-    if core_dir.exists() {
-        // if it's a symlink, remove it
-        if core_dir
-            .symlink_metadata()
-            .context("Unable to get core dir info")?
-            .file_type()
-            .is_symlink()
-        {
-            std::fs::remove_file(&core_dir).context("Unable to unlink symlinked core directory")?;
-        } else {
-            std::fs::remove_dir_all(&core_dir).context("Unable to remove old core directory")?;
-        }
-    }
-    // ensure lib directory exists
-    std::fs::create_dir_all(&lib_dir).context("Unable to create lib directory")?;
 
-    let default_toolchain_path = crate::config::toolchain_path(&toolchain_name);
-    let toolchain_lib_dir = default_toolchain_path.join("lib");
-    let toolchain_core_dir = default_toolchain_path.join("lib/core");
-    // mkdir -p $MOON_HOME/lib
-    std::fs::create_dir_all(&toolchain_lib_dir).context("Unable to create core directory")?;
+    symlink_dir_to_default(&toolchain_name, "lib")?;
+    symlink_file_to_default(&toolchain_name, "bin/lsp-server.js")?;
 
-    // Remove (or unlink) the original core before symlinking.
-    // Note that the original core can be either a symlink (we are already handling toolchains)
-    // or a directory (this is a new installation).
-    if core_dir.try_exists()? || core_dir.is_symlink() {
-        // Either `core_dir` exists (or is a valid symlink), or it is an invalid symlink.
-        tracing::info!("Removing core directory: {}", core_dir.display());
-        std::fs::remove_dir_all(&core_dir).context("Unable to remove core directory")?;
+    crate::config::save_config(&config).context("Unable to save configuration")?;
+    Ok(())
+}
+
+/// Delete a file in $MOON_HOME and symlink it to the equivalent file in the specified toolchain
+fn symlink_file_to_default(toolchain_name: &str, file_path: &str) -> anyhow::Result<()> {
+    let target_file = crate::config::home_dir().join(file_path);
+    let default_toolchain_path = crate::config::toolchain_path(toolchain_name);
+    let toolchain_target_file = default_toolchain_path.join(file_path);
+
+    // Ensure the parent directory of the target file exists
+    if let Some(parent) = target_file.parent() {
+        std::fs::create_dir_all(parent).context(format!(
+            "Unable to create parent directory for {}",
+            file_path
+        ))?;
     }
-    match symlink_core(&toolchain_core_dir, &core_dir) {
+
+    // Ensure the source file exists in the toolchain
+    if !toolchain_target_file.exists() {
+        anyhow::bail!(
+            "Source file does not exist in toolchain: {}",
+            toolchain_target_file.display()
+        );
+    }
+
+    // Remove the original file or symlink if it exists
+    if target_file.try_exists()? || target_file.is_symlink() {
+        tracing::info!("Removing file: {}", target_file.display());
+        std::fs::remove_file(&target_file)
+            .context(format!("Unable to remove file {}", target_file.display()))?;
+    }
+
+    // Create the symlink
+    match symlink_core(&toolchain_target_file, &target_file) {
         Ok(_) => {
             tracing::info!(
-                "Symlinked core directory: {} -> {}",
-                toolchain_core_dir.display(),
-                core_dir.display()
+                "Symlinked file: {} -> {}",
+                toolchain_target_file.display(),
+                target_file.display()
             );
         }
         Err(e) => {
             tracing::error!(
-                "Unable to symlink core directory: {}; Core directory: {}",
+                "Unable to symlink file: {}; Path: {}",
                 e,
-                toolchain_core_dir.display()
+                toolchain_target_file.display()
             );
+            return Err(e);
         }
     };
 
-    crate::config::save_config(&config).context("Unable to save configuration")?;
+    Ok(())
+}
+
+/// Delete a directory in $MOON_HOME and symlink it to the equivalent directory in the specified toolchain
+fn symlink_dir_to_default(toolchain_name: &str, dir_path: &str) -> anyhow::Result<()> {
+    let target_dir = crate::config::home_dir().join(dir_path);
+    let default_toolchain_path = crate::config::toolchain_path(toolchain_name);
+    let toolchain_target_dir = default_toolchain_path.join(dir_path);
+
+    // Ensure the target directory exists in the toolchain
+    std::fs::create_dir_all(&toolchain_target_dir)
+        .context(format!("Unable to create {} directory", dir_path))?;
+
+    // Remove (or unlink) the original directory before symlinking.
+    // Note that the original directory can be either a symlink (we are already handling toolchains)
+    // or a directory (this is a new installation).
+    if target_dir.try_exists()? || target_dir.is_symlink() {
+        // Either the directory exists (or is a valid symlink), or it is an invalid symlink.
+        tracing::info!("Removing directory: {}", target_dir.display());
+        std::fs::remove_dir_all(&target_dir).context(format!(
+            "Unable to remove directory {}",
+            target_dir.display()
+        ))?;
+    }
+
+    match symlink_core(&toolchain_target_dir, &target_dir) {
+        Ok(_) => {
+            tracing::info!(
+                "Symlinked directory: {} -> {}",
+                toolchain_target_dir.display(),
+                target_dir.display()
+            );
+        }
+        Err(e) => {
+            tracing::error!(
+                "Unable to symlink directory: {}; Path: {}",
+                e,
+                toolchain_target_dir.display()
+            );
+            return Err(e);
+        }
+    };
+
     Ok(())
 }
 
