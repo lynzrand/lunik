@@ -3,6 +3,8 @@ use std::{collections::HashMap, path::PathBuf};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
+mod util;
+
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct Config {
     /// Toolchain information
@@ -15,6 +17,15 @@ pub struct Config {
 
     /// Default toolchain
     pub default: String,
+}
+
+impl Config {
+    pub fn toolchain_fallback_iter<'a>(
+        &'a self,
+        toolchain_name: &'a str,
+    ) -> util::ConfigToolchainFallbackIter<'a> {
+        util::ConfigToolchainFallbackIter::new(self, toolchain_name)
+    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
@@ -60,13 +71,11 @@ static HOME_DIR_CACHE: Lazy<PathBuf> = Lazy::new(get_home_dir);
 
 /// Find the home directory.
 ///
-/// 1. Try to find home directory from environment variables `LUNIK_HOME` and `MOON_HOME`.
+/// 1. Try to find home directory from environment variables `LUNIK_HOME`.
 /// 2. If not found, use the default home directory `~/.moon`.
 fn get_home_dir() -> PathBuf {
     if let Ok(lunik_home) = std::env::var(LUNIK_HOME_ENV_NAME) {
         PathBuf::from(lunik_home)
-    } else if let Ok(moon_home) = std::env::var(MOON_HOME_ENV_NAME) {
-        PathBuf::from(moon_home)
     } else {
         home::home_dir().unwrap_or_default().join(MOON_HOME_DEFAULT)
     }

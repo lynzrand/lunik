@@ -1,7 +1,6 @@
 use std::{borrow::Cow, path::PathBuf};
 
-use crate::config::{Config, ToolchainInfo, LUNIK_HOME_ENV_NAME};
-
+use crate::config::{Config, ToolchainInfo, LUNIK_HOME_ENV_NAME, MOON_HOME_ENV_NAME};
 pub const LUNIK_TOOLCHAIN_ENV_NAME: &str = "LUNIK_TOOLCHAIN";
 
 pub fn entry(binary_name: &str, argv: &[String]) -> anyhow::Result<()> {
@@ -68,6 +67,10 @@ pub fn configure_cmd_environment(
     if let Some(toolchain) = toolchain_name {
         cmd.env(LUNIK_TOOLCHAIN_ENV_NAME, toolchain);
     }
+    cmd.env(
+        MOON_HOME_ENV_NAME,
+        try_get_toolchain_home(cfg, toolchain_name)?,
+    );
     if std::env::var(crate::config::MOON_CORE_OVERRIDE_ENV_NAME).is_err() {
         let core_lib_path = try_get_core_lib(cfg, toolchain_name)?;
         cmd.env(crate::config::MOON_CORE_OVERRIDE_ENV_NAME, core_lib_path);
@@ -75,63 +78,59 @@ pub fn configure_cmd_environment(
     Ok(())
 }
 
+pub fn try_get_toolchain_home(
+    cfg: &Config,
+    toolchain_name: Option<&str>,
+) -> anyhow::Result<PathBuf> {
+    let initial_toolchain_name = toolchain_name.unwrap_or(&cfg.default);
+
+    for (name, info) in cfg.toolchain_fallback_iter(initial_toolchain_name) {
+        if info.fallback.is_none() {
+            return Ok(info
+                .root_path
+                .clone()
+                .unwrap_or_else(|| crate::config::toolchain_path(&name)));
+        }
+    }
+
+    Err(anyhow::anyhow!(
+        "No toolchain among the fallbacks of `{}` has a home path",
+        initial_toolchain_name
+    ))
+}
+
 pub fn try_get_executable(
     cfg: &Config,
     toolchain: Option<&str>,
     executable_name: &str,
 ) -> anyhow::Result<PathBuf> {
-    let mut toolchain_name = toolchain.unwrap_or(&cfg.default);
+    let initial_toolchain_name = toolchain.unwrap_or(&cfg.default);
 
-    // Strip .exe in executable if is Windows
-    let executable_name = if cfg!(windows) {
+    // Strip .exe suffix from executable_name if on Windows
+    let executable_name_base = if cfg!(windows) {
         executable_name.trim_end_matches(".exe")
     } else {
         executable_name
     };
 
-    loop {
-        // Get information about the toolchain
-        let (real_toolchain_name, toolchain_info) =
-            if let Some(info) = cfg.toolchain.get(toolchain_name) {
-                (Cow::Borrowed(toolchain_name), info)
-            } else {
-                match toolchain_name.parse::<super::channel::Channel>() {
-                    Ok(ch) => {
-                        let real_name = ch.to_string();
-                        if let Some(info) = cfg.toolchain.get(&real_name) {
-                            (Cow::Owned(real_name), info)
-                        } else {
-                            return Err(anyhow::anyhow!("Toolchain not found: {}", toolchain_name));
-                        }
-                    }
-                    Err(_) => {
-                        return Err(anyhow::anyhow!("Toolchain not found: {}", toolchain_name));
-                    }
-                }
-            };
-
-        // Get the executable path
-        let executable_path =
-            get_toolchain_executable(&real_toolchain_name, toolchain_info, executable_name);
-
+    for (name, info) in cfg.toolchain_fallback_iter(initial_toolchain_name) {
+        let executable_path = get_toolchain_executable(&name, info, executable_name_base);
         if executable_path.exists() {
             return Ok(executable_path);
         } else {
-            // If the executable does not exist, try to use the fallback toolchain
-            if let Some(fallback) = &toolchain_info.fallback {
-                // eprintln!(
-                //     "Executable not found in toolchain '{}', trying fallback '{}'",
-                //     real_toolchain_name, fallback
-                // );
-                toolchain_name = fallback;
-            } else {
-                return Err(anyhow::anyhow!(
-                    "Executable not found: {}",
-                    executable_path.display()
-                ));
-            }
+            // Optional: Add logging if needed
+            // eprintln!(
+            //     "Executable '{}' not found in toolchain '{}', trying next in fallback chain",
+            //     executable_name, &name
+            // );
         }
     }
+
+    Err(anyhow::anyhow!(
+        "Executable '{}' not found in toolchain '{}' or any of its fallbacks",
+        executable_name,
+        initial_toolchain_name
+    ))
 }
 
 fn get_toolchain_executable(
@@ -157,50 +156,24 @@ fn get_toolchain_executable(
 }
 
 fn try_get_core_lib(cfg: &Config, toolchain: Option<&str>) -> anyhow::Result<PathBuf> {
-    let mut toolchain_name = toolchain.unwrap_or(&cfg.default);
+    let initial_toolchain_name = toolchain.unwrap_or(&cfg.default);
 
-    loop {
-        // Get information about the toolchain
-        let (real_toolchain_name, toolchain_info) =
-            if let Some(info) = cfg.toolchain.get(toolchain_name) {
-                (Cow::Borrowed(toolchain_name), info)
-            } else {
-                match toolchain_name.parse::<super::channel::Channel>() {
-                    Ok(ch) => {
-                        let real_name = ch.to_string();
-                        if let Some(info) = cfg.toolchain.get(&real_name) {
-                            (Cow::Owned(real_name), info)
-                        } else {
-                            return Err(anyhow::anyhow!("Toolchain not found: {}", toolchain_name));
-                        }
-                    }
-                    Err(_) => {
-                        return Err(anyhow::anyhow!("Toolchain not found: {}", toolchain_name));
-                    }
-                }
-            };
-
-        // Get the executable path
-        let core_lib_path = get_toolchain_core_lib(&real_toolchain_name, toolchain_info);
-
+    for (name, info) in cfg.toolchain_fallback_iter(initial_toolchain_name) {
+        let core_lib_path = get_toolchain_core_lib(&name, info);
         if core_lib_path.exists() {
             return Ok(core_lib_path);
         } else {
-            // If the executable does not exist, try to use the fallback toolchain
-            if let Some(fallback) = &toolchain_info.fallback {
-                eprintln!(
-                    "Core library not found in toolchain '{}', trying fallback '{}'",
-                    real_toolchain_name, fallback
-                );
-                toolchain_name = fallback;
-            } else {
-                return Err(anyhow::anyhow!(
-                    "Core library not found: {}",
-                    core_lib_path.display()
-                ));
-            }
+            eprintln!(
+                "Core library not found in toolchain '{}', trying next in fallback chain",
+                &name
+            );
         }
     }
+
+    Err(anyhow::anyhow!(
+        "Core library not found in toolchain '{}' or any of its fallbacks",
+        initial_toolchain_name
+    ))
 }
 
 fn get_toolchain_core_lib(toolchain_name: &str, toolchain: &ToolchainInfo) -> PathBuf {
